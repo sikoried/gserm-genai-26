@@ -1,0 +1,26 @@
+# Oracle — evaluation query/answer pairs (STUB)
+#
+# These are trivial placeholder examples so the eval harness has something to
+# run against. Real pairs — grounded in the NeelNanda/wiki-10k corpus and
+# scored with LLM-as-a-judge — will be authored later.
+#
+# Schema per item:
+#   id:               stable identifier
+#   question:         the query posed to a QA system
+#   reference_answer: the expected ("gold") answer the judge compares against
+
+- id: ex-001
+  question: "What is the capital of France?"
+  reference_answer: "Paris"
+
+- id: ex-002
+  question: "Who wrote the play Romeo and Juliet?"
+  reference_answer: "William Shakespeare"
+
+- id: ex-003
+  question: "What is the chemical symbol for water?"
+  reference_answer: "H2O"
+
+- id: ex-004
+  question: "How many continents are there on Earth?"
+  reference_answer: "Seven"
