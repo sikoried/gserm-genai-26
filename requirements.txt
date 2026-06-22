@@ -1,0 +1,21 @@
+# Oracle — Python dependencies (Python 3.12 recommended)
+# Setup: python3.12 -m venv .venv && .venv/bin/pip install -r requirements.txt
+
+# --- Corpus / data (NeelNanda/wiki-10k) ---
+datasets>=3.0
+huggingface_hub>=0.24
+
+# --- Local embeddings + vector store (computed locally, NOT via the LLM proxy) ---
+sentence-transformers>=3.0
+faiss-cpu>=1.8
+# chromadb>=0.5    # backlog: in-memory alternative with metadata filtering — see TODO.md
+
+# --- Backend API (FastAPI + HF OpenAI-compatible client) ---
+fastapi>=0.111
+uvicorn[standard]>=0.30
+openai>=1.40
+pydantic>=2.7
+pyyaml>=6.0
+
+# --- Dev / test ---
+pytest>=8.0

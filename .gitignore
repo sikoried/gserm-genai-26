@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+venv/
+
+# Data / model caches (datasets, embeddings, HF hub)
+data/
+.cache/
+
+# Secrets / env
+.env
+.env.*
+.llmtoken
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
