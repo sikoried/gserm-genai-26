@@ -1,0 +1,5 @@
+# Basic `world` QA system: plain LLM answer from world knowledge (no retrieval).
+type: world
+model: mistralai/Mistral-Medium-3.5-128B
+endpoint: https://kiz1.in.ohmportal.de/llmproxy/v1
+temperature: 0.0
