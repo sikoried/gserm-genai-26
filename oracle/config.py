@@ -18,6 +18,7 @@ class QAConfig(BaseModel):
     endpoint: str = DEFAULT_ENDPOINT
     temperature: float = 0.0
     system_prompt: str | None = None  # overrides the QA system's built-in prompt
+    reasoning_effort: str | None = None  # "low"/"medium"/"high"; passed to the model when set
 
     @classmethod
     def from_yaml(cls, path: str | Path) -> "QAConfig":

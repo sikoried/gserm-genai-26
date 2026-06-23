@@ -4,6 +4,7 @@ from __future__ import annotations
 from .base import Answer, QASystem
 from ..config import QAConfig
 from ..llm import chat_with_metrics, make_client
+from ..models import reasoning_request_kwargs
 
 DEFAULT_SYSTEM_PROMPT = (
     "You are a knowledgeable question-answering assistant. "
@@ -27,5 +28,6 @@ class WorldQA(QASystem):
                 {"role": "user", "content": question},
             ],
             temperature=self.config.temperature,
+            **reasoning_request_kwargs(self.config.model, self.config.reasoning_effort),
         )
         return Answer(content=content.strip(), metrics=metrics)
