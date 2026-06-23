@@ -1,0 +1,10 @@
+# `world` QA system with a custom `system_prompt` overriding the built-in default.
+# Coexists with world.yaml — pick one per run via `--config configs/world_plus.yaml`.
+type: world
+model: mistralai/Mistral-Medium-3.5-128B
+endpoint: https://kiz1.in.ohmportal.de/llmproxy/v1
+temperature: 0.0
+system_prompt: >-
+  You are a meticulous expert. Answer the question accurately and concisely,
+  citing the key facts that justify your answer. If you are uncertain, say so
+  explicitly rather than guessing.

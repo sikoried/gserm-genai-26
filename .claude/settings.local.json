@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(.venv\\\\Scripts\\\\python -m pytest -q)",
+      "PowerShell(& .\\\\.venv\\\\Scripts\\\\python.exe -m pytest -q)",
+      "PowerShell(foreach \\($c in @\\('py -3.12','py','python','python3.12','python3'\\)\\) { Write-Output \"== $c ==\"; try { Invoke-Expression \"$c --version\" } catch { Write-Output \"n/a\" } })",
+      "PowerShell(python -c \"import pytest, pydantic, yaml; print\\('pytest', pytest.__version__\\); print\\('pydantic', pydantic.__version__\\)\")",
+      "PowerShell(py *)"
+    ]
+  }
+}

@@ -71,7 +71,15 @@ type: The type of the model, for now either of world, rag or a-rag.
 model: Any huggingface LLM, default to mistralai/Mistral-Medium-3.5-128B
 endpoint: https://kiz1.in.ohmportal.de/llmproxy/v1
 temperature:
+system_prompt: Optional. Overrides the QA system's built-in system prompt; if
+  omitted, the system falls back to its hard-coded default (see e.g.
+  `DEFAULT_SYSTEM_PROMPT` in `oracle/qa/world.py`).
 ```
+
+Multiple config files can coexist in `configs/` — each is a self-contained QA
+system selected per run via `--config`. For example, `world.yaml` uses the
+built-in prompt while `world_plus.yaml` sets a custom `system_prompt`, so you
+can evaluate prompt variants side by side without editing code.
 
 
 ## Evaluation
