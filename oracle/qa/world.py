@@ -1,9 +1,9 @@
 """`world` QA system: answer from the model's own world knowledge (no retrieval)."""
 from __future__ import annotations
 
-from .base import QASystem
+from .base import Answer, QASystem
 from ..config import QAConfig
-from ..llm import chat, make_client
+from ..llm import chat_with_metrics, make_client
 
 SYSTEM_PROMPT = (
     "You are a knowledgeable question-answering assistant. "
@@ -17,8 +17,8 @@ class WorldQA(QASystem):
         super().__init__(config)
         self.client = make_client(config.endpoint)
 
-    def answer(self, question: str) -> str:
-        return chat(
+    def answer(self, question: str) -> Answer:
+        content, metrics = chat_with_metrics(
             self.client,
             self.config.model,
             [
@@ -26,4 +26,5 @@ class WorldQA(QASystem):
                 {"role": "user", "content": question},
             ],
             temperature=self.config.temperature,
-        ).strip()
+        )
+        return Answer(content=content.strip(), metrics=metrics)

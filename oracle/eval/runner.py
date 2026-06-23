@@ -1,7 +1,7 @@
 """End-to-end evaluation: answer each pair with a QA system, then judge it."""
 from __future__ import annotations
 
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, field
 from pathlib import Path
 from typing import Callable
 
@@ -20,6 +20,11 @@ class ItemResult:
     answer: str
     verdict: str
     reasoning: str
+    # QA model metrics — judge metrics are intentionally excluded
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
+    elapsed_seconds: float = 0.0
 
 
 def load_pairs(path: str | Path) -> list[dict]:
@@ -37,8 +42,10 @@ def run_eval(config: QAConfig, pairs: list[dict], *, judge_model: str = JUDGE_MO
         question = pair["question"]
         reference = pair["reference_answer"]
         try:
-            answer = qa.answer(question)
-        except Exception as exc:  # answering failed — record and continue
+            answer_obj = qa.answer(question)
+            answer_text = answer_obj.content
+            metrics = answer_obj.metrics
+        except Exception as exc:
             results.append(ItemResult(rid, question, reference,
                                       f"<answer error: {exc}>", "error",
                                       "answer call failed"))
@@ -46,12 +53,18 @@ def run_eval(config: QAConfig, pairs: list[dict], *, judge_model: str = JUDGE_MO
                 progress(results[-1])
             continue
         try:
-            verdict = judge(question, reference, answer,
+            verdict = judge(question, reference, answer_text,
                             endpoint=judge_endpoint, model=judge_model)
             label, reasoning = verdict.label, verdict.reasoning
-        except Exception as exc:  # judging failed
+        except Exception as exc:
             label, reasoning = "error", f"judge call failed: {exc}"
-        results.append(ItemResult(rid, question, reference, answer, label, reasoning))
+        results.append(ItemResult(
+            rid, question, reference, answer_text, label, reasoning,
+            prompt_tokens=metrics.prompt_tokens,
+            completion_tokens=metrics.completion_tokens,
+            total_tokens=metrics.total_tokens,
+            elapsed_seconds=metrics.elapsed_seconds,
+        ))
         if progress:
             progress(results[-1])
     return results
