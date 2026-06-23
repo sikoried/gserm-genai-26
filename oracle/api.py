@@ -72,6 +72,23 @@ class ModelInfoResponse(BaseModel):
     efforts: list[str]  # reasoning effort values this model accepts (may be empty)
 
 
+class ChatRequest(BaseModel):
+    question: str
+    mode: str = "World"  # World | RAG | Agentic RAG
+    model: str = QAConfig().model
+    temperature: float = 0.0
+
+
+class ChatResponse(BaseModel):
+    answer: str
+    mode: str
+    model: str
+
+
+# A chat "mode" maps onto a QA-system type.
+MODE_TO_TYPE = {"World": "world", "RAG": "rag", "Agentic RAG": "a-rag"}
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -138,6 +155,24 @@ def post_compare(req: CompareRequest) -> list[AnswerResponse]:
                                             error=str(exc))
 
     return results
+
+
+@app.post("/api/chat", response_model=ChatResponse)
+def post_chat(req: ChatRequest) -> ChatResponse:
+    qa_type = MODE_TO_TYPE.get(req.mode)
+    if qa_type is None:
+        raise HTTPException(status_code=400, detail=f"Unknown mode: {req.mode!r}")
+    config = QAConfig(type=qa_type, model=req.model, endpoint=DEFAULT_ENDPOINT,
+                      temperature=req.temperature)
+    try:
+        qa = build_qa_system(config)
+    except NotImplementedError as exc:  # RAG / a-rag not implemented yet
+        raise HTTPException(status_code=501, detail=str(exc))
+    try:
+        result = qa.answer(req.question)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+    return ChatResponse(answer=result.content, mode=req.mode, model=req.model)
 
 
 # ---------------------------------------------------------------------------

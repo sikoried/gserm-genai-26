@@ -86,3 +86,24 @@ def test_answer_happy_path():
     assert data["model"] == "m/one"
     assert data["error"] is None
     assert data["total_tokens"] == 15
+
+
+def test_chat_world_mode(monkeypatch):
+    from oracle.llm import UsageMetrics
+    from oracle.qa.base import Answer
+
+    class _FakeQA:
+        def answer(self, q):
+            return Answer(content=f"echo: {q}", metrics=UsageMetrics(1, 1, 2, 0.1))
+
+    monkeypatch.setattr(api, "build_qa_system", lambda cfg: _FakeQA())
+    resp = client.post("/api/chat", json={"question": "hi", "mode": "World"})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["answer"] == "echo: hi"
+    assert body["mode"] == "World"
+
+
+def test_chat_unknown_mode_is_400():
+    resp = client.post("/api/chat", json={"question": "hi", "mode": "Nope"})
+    assert resp.status_code == 400
