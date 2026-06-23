@@ -15,23 +15,35 @@ function shortName(model) {
   return model.split("/").pop();
 }
 
+// Distinguishes the same model added with different reasoning settings.
+function entryLabel(r) {
+  return shortName(r.model) + (r.reasoning_effort ? ` · ${r.reasoning_effort}` : "");
+}
+
 export default function ComparisonCharts({ results }) {
-  const timeData = results.map((r, i) => ({
-    name: shortName(r.model),
+  // Only successful responses can be charted (failures have no metrics).
+  const ok = results.filter((r) => !r.error);
+
+  const timeData = ok.map((r, i) => ({
+    name: entryLabel(r),
     value: r.elapsed_seconds,
     color: COLORS[i % COLORS.length],
   }));
 
-  const tokenData = results.map((r, i) => ({
-    name: shortName(r.model),
+  const tokenData = ok.map((r, i) => ({
+    name: entryLabel(r),
     prompt: r.prompt_tokens,
-    completion: r.completion_tokens,
+    reasoning: r.reasoning_tokens || 0,
+    answer: Math.max(0, r.completion_tokens - (r.reasoning_tokens || 0)),
     color: COLORS[i % COLORS.length],
   }));
 
   return (
     <div style={styles.wrapper}>
       <h2 style={styles.heading}>Cost Comparison</h2>
+      {ok.length === 0 ? (
+        <p style={{ color: "#888", fontSize: "0.9rem" }}>No successful responses to chart.</p>
+      ) : (
       <div style={styles.grid}>
         {/* Response time chart */}
         <div style={styles.chartBox}>
@@ -72,18 +84,21 @@ export default function ComparisonCharts({ results }) {
               />
               <YAxis tick={{ fontSize: 12 }} />
               <Tooltip
-                formatter={(v, name) => [v.toLocaleString(), name === "prompt" ? "Prompt tokens" : "Completion tokens"]}
+                formatter={(v, name) => [v.toLocaleString(), { prompt: "Prompt", reasoning: "Reasoning", answer: "Answer" }[name] || name]}
               />
               <Bar dataKey="prompt" stackId="a" fill="#93c5fd" name="prompt" radius={[0, 0, 0, 0]} />
-              <Bar dataKey="completion" stackId="a" fill="#2563eb" name="completion" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="reasoning" stackId="a" fill="#f59e0b" name="reasoning" radius={[0, 0, 0, 0]} />
+              <Bar dataKey="answer" stackId="a" fill="#2563eb" name="answer" radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
           <div style={styles.legend}>
             <span style={{ ...styles.dot, background: "#93c5fd" }} /> Prompt
-            <span style={{ ...styles.dot, background: "#2563eb", marginLeft: "1rem" }} /> Completion
+            <span style={{ ...styles.dot, background: "#f59e0b", marginLeft: "1rem" }} /> Reasoning
+            <span style={{ ...styles.dot, background: "#2563eb", marginLeft: "1rem" }} /> Answer
           </div>
         </div>
       </div>
+      )}
 
       {/* Summary table */}
       <table style={styles.table}>
@@ -93,19 +108,30 @@ export default function ComparisonCharts({ results }) {
             <th style={styles.th}>Time (s)</th>
             <th style={styles.th}>Prompt tokens</th>
             <th style={styles.th}>Completion tokens</th>
+            <th style={styles.th}>Reasoning tokens</th>
             <th style={styles.th}>Total tokens</th>
           </tr>
         </thead>
         <tbody>
-          {results.map((r, i) => (
-            <tr key={r.model} style={{ background: i % 2 === 0 ? "#f9fafb" : "#fff" }}>
-              <td style={styles.td}>{r.model}</td>
-              <td style={{ ...styles.td, textAlign: "right" }}>{r.elapsed_seconds.toFixed(2)}</td>
-              <td style={{ ...styles.td, textAlign: "right" }}>{r.prompt_tokens.toLocaleString()}</td>
-              <td style={{ ...styles.td, textAlign: "right" }}>{r.completion_tokens.toLocaleString()}</td>
-              <td style={{ ...styles.td, textAlign: "right", fontWeight: 600 }}>{r.total_tokens.toLocaleString()}</td>
-            </tr>
-          ))}
+          {results.map((r, i) =>
+            r.error ? (
+              <tr key={i} style={{ background: i % 2 === 0 ? "#f9fafb" : "#fff" }}>
+                <td style={styles.td}>{entryLabel(r)}</td>
+                <td style={{ ...styles.td, color: "#b91c1c" }} colSpan={5}>
+                  error: {r.error}
+                </td>
+              </tr>
+            ) : (
+              <tr key={i} style={{ background: i % 2 === 0 ? "#f9fafb" : "#fff" }}>
+                <td style={styles.td}>{entryLabel(r)}</td>
+                <td style={{ ...styles.td, textAlign: "right" }}>{r.elapsed_seconds.toFixed(2)}</td>
+                <td style={{ ...styles.td, textAlign: "right" }}>{r.prompt_tokens.toLocaleString()}</td>
+                <td style={{ ...styles.td, textAlign: "right" }}>{r.completion_tokens.toLocaleString()}</td>
+                <td style={{ ...styles.td, textAlign: "right" }}>{(r.reasoning_tokens || 0).toLocaleString()}</td>
+                <td style={{ ...styles.td, textAlign: "right", fontWeight: 600 }}>{r.total_tokens.toLocaleString()}</td>
+              </tr>
+            )
+          )}
         </tbody>
       </table>
     </div>

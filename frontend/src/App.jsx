@@ -1,42 +1,62 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import ComparisonCharts from "./components/ComparisonCharts.jsx";
 import ModelCard from "./components/ModelCard.jsx";
 
-const DEFAULT_MODELS = [
-  "mistralai/Mistral-Medium-3.5-128B",
-  "mistralai/Mistral-Small-3.1-24B",
-  "mistralai/Mistral-7B-Instruct-v0.3",
-];
-
 const DEFAULT_ENDPOINT = "https://kiz1.in.ohmportal.de/llmproxy/v1";
+
+function shortName(model) {
+  return model.split("/").pop();
+}
 
 export default function App() {
   const [question, setQuestion] = useState("");
   const [endpoint, setEndpoint] = useState(DEFAULT_ENDPOINT);
-  const [selectedModels, setSelectedModels] = useState([DEFAULT_MODELS[0]]);
-  const [customModel, setCustomModel] = useState("");
+  const [models, setModels] = useState([]);
+  // The comparison list: each entry is { model, reasoning_effort }.
+  const [entries, setEntries] = useState([]);
+  const [pickModel, setPickModel] = useState("");
+  const [pickReasoning, setPickReasoning] = useState("off");
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  function toggleModel(model) {
-    setSelectedModels((prev) =>
-      prev.includes(model) ? prev.filter((m) => m !== model) : [...prev, model]
-    );
+  // Load the available models (and their reasoning options) from the backend.
+  useEffect(() => {
+    fetch("/api/models")
+      .then((r) => r.json())
+      .then((list) => {
+        setModels(list);
+        if (list.length) setPickModel(list[0].id);
+      })
+      .catch(() => setError("Could not load the model list from /api/models."));
+  }, []);
+
+  const selectedModel = models.find((m) => m.id === pickModel);
+  const efforts = selectedModel?.efforts || [];
+
+  function changeModel(id) {
+    setPickModel(id);
+    setPickReasoning("off"); // reasoning options are model-specific
   }
 
-  function addCustomModel() {
-    const m = customModel.trim();
-    if (m && !selectedModels.includes(m)) {
-      setSelectedModels((prev) => [...prev, m]);
+  function addEntry() {
+    if (!pickModel) return;
+    const reasoning_effort = pickReasoning === "off" ? null : pickReasoning;
+    // Skip exact duplicates (same model + same reasoning setting).
+    if (entries.some((e) => e.model === pickModel && e.reasoning_effort === reasoning_effort)) {
+      return;
     }
-    setCustomModel("");
+    setEntries((prev) => [...prev, { model: pickModel, reasoning_effort }]);
+  }
+
+  function removeEntry(i) {
+    setEntries((prev) => prev.filter((_, idx) => idx !== i));
   }
 
   async function handleCompare() {
     if (!question.trim()) return;
-    if (selectedModels.length === 0) {
-      setError("Select at least one model.");
+    if (entries.length === 0) {
+      setError("Add at least one model to the comparison.");
       return;
     }
     setLoading(true);
@@ -46,11 +66,7 @@ export default function App() {
       const resp = await fetch("/api/compare", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          question: question.trim(),
-          models: selectedModels,
-          endpoint,
-        }),
+        body: JSON.stringify({ question: question.trim(), entries, endpoint }),
       });
       if (!resp.ok) {
         const detail = await resp.json().catch(() => ({}));
@@ -68,10 +84,11 @@ export default function App() {
     <div>
       <h1 style={{ marginBottom: "0.25rem" }}>Oracle — Model Comparison</h1>
       <p style={{ color: "#666", marginBottom: "1.5rem" }}>
-        Ask the same question across multiple models and compare response time and token cost.
+        Build a comparison list — add the same or different models, with or without
+        reasoning — and compare response time and token cost.
       </p>
 
-      {/* Question input */}
+      {/* Question + endpoint */}
       <section style={styles.card}>
         <label style={styles.label}>Question</label>
         <textarea
@@ -90,41 +107,62 @@ export default function App() {
         />
       </section>
 
-      {/* Model selection */}
+      {/* Comparison list builder */}
       <section style={styles.card}>
-        <label style={styles.label}>Models</label>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem", marginBottom: "0.75rem" }}>
-          {DEFAULT_MODELS.map((m) => (
-            <button
-              key={m}
-              onClick={() => toggleModel(m)}
-              style={{
-                ...styles.chip,
-                background: selectedModels.includes(m) ? "#2563eb" : "#e5e7eb",
-                color: selectedModels.includes(m) ? "#fff" : "#222",
-              }}
-            >
-              {m.split("/").pop()}
-            </button>
-          ))}
-        </div>
-        <div style={{ display: "flex", gap: "0.5rem" }}>
-          <input
-            style={{ ...styles.input, flex: 1 }}
-            placeholder="Add custom model ID…"
-            value={customModel}
-            onChange={(e) => setCustomModel(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && addCustomModel()}
-          />
-          <button style={styles.btnSecondary} onClick={addCustomModel}>
+        <label style={styles.label}>Add model to comparison</label>
+        <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", alignItems: "center" }}>
+          <select
+            style={{ ...styles.input, flex: "2 1 240px", width: "auto" }}
+            value={pickModel}
+            onChange={(e) => changeModel(e.target.value)}
+          >
+            {models.length === 0 && <option value="">Loading models…</option>}
+            {models.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.label}
+              </option>
+            ))}
+          </select>
+          <select
+            style={{ ...styles.input, flex: "1 1 150px", width: "auto" }}
+            value={pickReasoning}
+            onChange={(e) => setPickReasoning(e.target.value)}
+            disabled={efforts.length === 0}
+            title={efforts.length === 0 ? "This model has no reasoning control" : undefined}
+          >
+            <option value="off">No reasoning</option>
+            {efforts.map((eff) => (
+              <option key={eff} value={eff}>
+                Reasoning: {eff}
+              </option>
+            ))}
+          </select>
+          <button style={styles.btnSecondary} onClick={addEntry}>
             Add
           </button>
         </div>
-        {selectedModels.length > 0 && (
-          <div style={{ marginTop: "0.5rem", fontSize: "0.85rem", color: "#555" }}>
-            Selected: {selectedModels.join(", ")}
-          </div>
-        )}
+
+        {/* Comparison list as pills */}
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem", marginTop: "0.85rem" }}>
+          {entries.length === 0 && (
+            <span style={{ color: "#888", fontSize: "0.85rem" }}>No models added yet.</span>
+          )}
+          {entries.map((e, i) => (
+            <span key={i} style={styles.pill}>
+              <span>{shortName(e.model)}</span>
+              {e.reasoning_effort && (
+                <span style={styles.pillReasoning}>🧠 {e.reasoning_effort}</span>
+              )}
+              <button
+                style={styles.pillRemove}
+                onClick={() => removeEntry(i)}
+                aria-label={`remove ${e.model}`}
+              >
+                ×
+              </button>
+            </span>
+          ))}
+        </div>
       </section>
 
       <button
@@ -132,12 +170,10 @@ export default function App() {
         onClick={handleCompare}
         disabled={loading}
       >
-        {loading ? "Comparing…" : "Compare Models"}
+        {loading ? "Comparing…" : "Compare"}
       </button>
 
-      {error && (
-        <div style={styles.error}>{error}</div>
-      )}
+      {error && <div style={styles.error}>{error}</div>}
 
       {results.length > 0 && (
         <>
@@ -145,8 +181,8 @@ export default function App() {
 
           <h2 style={{ marginTop: "2rem", marginBottom: "1rem" }}>Answers</h2>
           <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-            {results.map((r) => (
-              <ModelCard key={r.model} result={r} />
+            {results.map((r, i) => (
+              <ModelCard key={i} result={r} />
             ))}
           </div>
         </>
@@ -176,6 +212,7 @@ const styles = {
     border: "1px solid #d1d5db",
     borderRadius: "6px",
     fontSize: "0.9rem",
+    boxSizing: "border-box",
   },
   textarea: {
     width: "100%",
@@ -185,15 +222,7 @@ const styles = {
     fontSize: "0.9rem",
     resize: "vertical",
     fontFamily: "inherit",
-  },
-  chip: {
-    border: "none",
-    borderRadius: "20px",
-    padding: "0.3rem 0.8rem",
-    cursor: "pointer",
-    fontSize: "0.85rem",
-    fontWeight: 500,
-    transition: "background 0.15s",
+    boxSizing: "border-box",
   },
   btnPrimary: {
     background: "#2563eb",
@@ -214,6 +243,7 @@ const styles = {
     padding: "0.5rem 1rem",
     fontSize: "0.9rem",
     cursor: "pointer",
+    whiteSpace: "nowrap",
   },
   error: {
     background: "#fee2e2",
@@ -222,5 +252,34 @@ const styles = {
     padding: "0.75rem 1rem",
     marginBottom: "1rem",
     fontSize: "0.9rem",
+  },
+  pill: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: "0.4rem",
+    background: "#eef2ff",
+    color: "#3730a3",
+    border: "1px solid #c7d2fe",
+    borderRadius: "20px",
+    padding: "0.3rem 0.4rem 0.3rem 0.8rem",
+    fontSize: "0.85rem",
+    fontWeight: 500,
+  },
+  pillReasoning: {
+    background: "#fef3c7",
+    color: "#b45309",
+    borderRadius: "12px",
+    padding: "0.05rem 0.45rem",
+    fontSize: "0.75rem",
+    fontWeight: 600,
+  },
+  pillRemove: {
+    background: "transparent",
+    border: "none",
+    color: "#6366f1",
+    cursor: "pointer",
+    fontSize: "1.05rem",
+    lineHeight: 1,
+    padding: "0 0.2rem",
   },
 };
