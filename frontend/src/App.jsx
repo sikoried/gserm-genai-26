@@ -1,0 +1,221 @@
+import { useState, useRef, useEffect } from 'react'
+import './App.css'
+
+const MODELS = ['mistralai/Mistral-Medium-3.5-128B']
+const MODES = ['World', 'RAG', 'Agentic RAG']
+const BACKEND_URL = 'http://localhost:8000'
+
+function App() {
+  const [chats, setChats] = useState([{ id: 1, title: 'New chat', messages: [] }])
+  const [activeChatId, setActiveChatId] = useState(1)
+  const [input, setInput] = useState('')
+  const [model, setModel] = useState(MODELS[0])
+  const [mode, setMode] = useState(MODES[0])
+  const [loading, setLoading] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [temperature, setTemperature] = useState('0.0')
+  const chatEndRef = useRef(null)
+  const textareaRef = useRef(null)
+  const nextId = useRef(2)
+
+  const activeChat = chats.find((c) => c.id === activeChatId)
+
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [activeChat?.messages])
+
+  function updateChat(chatId, updater) {
+    setChats((prev) => prev.map((c) => (c.id === chatId ? updater(c) : c)))
+  }
+
+  function newChat() {
+    const id = nextId.current++
+    setChats((prev) => [...prev, { id, title: 'New chat', messages: [] }])
+    setActiveChatId(id)
+  }
+
+  async function send() {
+    const text = input.trim()
+    if (!text || loading) return
+
+    const userMsg = { role: 'user', content: text }
+    const chatId = activeChatId
+
+    updateChat(chatId, (c) => {
+      const title = c.messages.length === 0 ? text.slice(0, 40) : c.title
+      return { ...c, title, messages: [...c.messages, userMsg] }
+    })
+    setInput('')
+    setLoading(true)
+
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          question: text,
+          mode,
+          model,
+          temperature: parseFloat(temperature) || 0,
+        }),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(err.detail || `Server error (${res.status})`)
+      }
+      const data = await res.json()
+      updateChat(chatId, (c) => ({
+        ...c,
+        messages: [...c.messages, { role: 'assistant', content: data.answer }],
+      }))
+    } catch (err) {
+      updateChat(chatId, (c) => ({
+        ...c,
+        messages: [
+          ...c.messages,
+          { role: 'assistant', content: `Error: ${err.message}` },
+        ],
+      }))
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  function handleKeyDown(e) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      send()
+    }
+  }
+
+  function autoResize() {
+    const el = textareaRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = Math.min(el.scrollHeight, 160) + 'px'
+  }
+
+  return (
+    <div className="app">
+      {/* ── Sidebar: Chat History ── */}
+      <aside className="sidebar">
+        <div className="sidebar-header">Chat History</div>
+        <div className="sidebar-chats">
+          {chats.map((c) => (
+            <div
+              key={c.id}
+              className={`sidebar-chat-item${c.id === activeChatId ? ' active' : ''}`}
+              onClick={() => setActiveChatId(c.id)}
+            >
+              {c.title}
+            </div>
+          ))}
+        </div>
+        <div className="sidebar-new-chat" onClick={newChat}>
+          + New Chat
+        </div>
+        <div className="sidebar-footer">
+          <button className="settings-btn" onClick={() => setSettingsOpen(true)}>
+            Settings
+          </button>
+        </div>
+      </aside>
+
+      {/* ── Main Area ── */}
+      <div className="main">
+        {/* Top bar: model + mode dropdowns */}
+        <div className="topbar">
+          <div className="topbar-group">
+            <span className="topbar-label">Model</span>
+            <select value={model} onChange={(e) => setModel(e.target.value)}>
+              {MODELS.map((m) => (
+                <option key={m} value={m}>
+                  {m}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="topbar-group">
+            <span className="topbar-label">Mode</span>
+            <select value={mode} onChange={(e) => setMode(e.target.value)}>
+              {MODES.map((m) => (
+                <option key={m} value={m}>
+                  {m}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        {/* Text generation window */}
+        <div className="chat-window">
+          {activeChat?.messages.length === 0 && (
+            <div className="chat-window-empty">
+              Ask a question to get started
+            </div>
+          )}
+          {activeChat?.messages.map((msg, i) => (
+            <div key={i} className={`message ${msg.role}`}>
+              <div className="message-role">
+                {msg.role === 'user' ? 'You' : 'Oracle'}
+              </div>
+              <div className="message-content">{msg.content}</div>
+            </div>
+          ))}
+          {loading && (
+            <div className="message assistant">
+              <div className="message-role">Oracle</div>
+              <div className="message-content loading">Thinking...</div>
+            </div>
+          )}
+          <div ref={chatEndRef} />
+        </div>
+
+        {/* Chat input */}
+        <div className="chat-input-bar">
+          <div className="chat-input-wrapper">
+            <textarea
+              ref={textareaRef}
+              value={input}
+              onChange={(e) => {
+                setInput(e.target.value)
+                autoResize()
+              }}
+              onKeyDown={handleKeyDown}
+              placeholder="Type your question..."
+              rows={1}
+            />
+            <button className="send-btn" onClick={send} disabled={loading || !input.trim()}>
+              Send
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Settings Modal ── */}
+      {settingsOpen && (
+        <div className="modal-overlay" onClick={() => setSettingsOpen(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h2>Settings</h2>
+            <div className="modal-field">
+              <label>Temperature</label>
+              <input
+                type="number"
+                step="0.1"
+                min="0"
+                max="2"
+                value={temperature}
+                onChange={(e) => setTemperature(e.target.value)}
+              />
+            </div>
+            <div className="modal-actions">
+              <button onClick={() => setSettingsOpen(false)}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+export default App

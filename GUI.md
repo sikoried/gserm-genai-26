@@ -1,23 +1,29 @@
 # GUI overview
 
+Familiarize with the curent state.
+
 I need a GUI that contains different functions. I will list the functions first and give further instructions on the individual functions later. The functions are:
-- Chat interface
+- Text generation window
+- Chat enter interface
 - Chat history
 - Settings
 - Dropdown for selection of the LLM model
-- Dropdown for selection of the mode
+- Dropdown for selection of the system
 
-## Chat interface
+## Text generation window
+- Position: center of the GUI
+
+## Chat enter interface
 - Position: at the bottom of the GUI
-- Alignment: middle
+- Text alignment: left
 - Button for submitting the request
-- Dropdown for default promt selection
+- Dropdown for default promt selection (postpone for later)
 
 ## Chat history
 - Position: left side of the GUI; column style consuming 10% of width of GUI
 - Chat opening by clicking on the chat
 
-## Settings
+## Settings button
 - Position: left bottom corner
 
 ## Dropdown for selection of the LLM model
@@ -36,5 +42,7 @@ Selection options:
 
 ## Design of GUI
 - Follow HSG St.Gallen website design
+
+
 
 
