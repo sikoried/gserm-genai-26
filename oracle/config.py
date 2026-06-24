@@ -19,6 +19,9 @@ class QAConfig(BaseModel):
     temperature: float = 0.0
     system_prompt: str | None = None  # overrides the QA system's built-in prompt
     reasoning_effort: str | None = None  # "low"/"medium"/"high"; passed to the model when set
+    # --- RAG ---
+    top_k: int = 10  # number of retrieved chunks used as context (rag)
+    embedding_model: str = "all-MiniLM-L6-v2"  # local embedding model for retrieval
 
     @classmethod
     def from_yaml(cls, path: str | Path) -> "QAConfig":

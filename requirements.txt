@@ -8,6 +8,7 @@ huggingface_hub>=0.24
 # --- Local embeddings + vector store (computed locally, NOT via the LLM proxy) ---
 sentence-transformers>=3.0
 faiss-cpu>=1.8
+jinja2>=3.1  # RAG prompt template
 # chromadb>=0.5    # backlog: in-memory alternative with metadata filtering — see TODO.md
 
 # --- Backend API (FastAPI + HF OpenAI-compatible client) ---
