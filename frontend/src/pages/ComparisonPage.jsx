@@ -194,7 +194,7 @@ export default function ComparisonPage() {
 }
 
 const styles = {
-  scroll: { height: "100%", overflowY: "auto", background: "#f5f5f5" },
+  scroll: { height: "100%", overflowY: "auto", background: "var(--hsg-gray-50)" },
   container: { maxWidth: "1100px", margin: "0 auto", padding: "2rem 1rem" },
   card: {
     background: "#fff",
@@ -213,7 +213,7 @@ const styles = {
   input: {
     width: "100%",
     padding: "0.5rem 0.75rem",
-    border: "1px solid #d1d5db",
+    border: "1px solid var(--hsg-gray-300)",
     borderRadius: "6px",
     fontSize: "0.9rem",
     boxSizing: "border-box",
@@ -221,7 +221,7 @@ const styles = {
   textarea: {
     width: "100%",
     padding: "0.5rem 0.75rem",
-    border: "1px solid #d1d5db",
+    border: "1px solid var(--hsg-gray-300)",
     borderRadius: "6px",
     fontSize: "0.9rem",
     resize: "vertical",
@@ -229,7 +229,7 @@ const styles = {
     boxSizing: "border-box",
   },
   btnPrimary: {
-    background: "#2563eb",
+    background: "var(--hsg-green)",
     color: "#fff",
     border: "none",
     borderRadius: "6px",
@@ -240,8 +240,8 @@ const styles = {
     marginBottom: "1rem",
   },
   btnSecondary: {
-    background: "#e5e7eb",
-    color: "#222",
+    background: "var(--hsg-gray-200)",
+    color: "var(--hsg-gray-900)",
     border: "none",
     borderRadius: "6px",
     padding: "0.5rem 1rem",
@@ -261,9 +261,9 @@ const styles = {
     display: "inline-flex",
     alignItems: "center",
     gap: "0.4rem",
-    background: "#eef2ff",
-    color: "#3730a3",
-    border: "1px solid #c7d2fe",
+    background: "#e8f1ec",
+    color: "var(--hsg-green-dark)",
+    border: "1px solid #bcdcca",
     borderRadius: "20px",
     padding: "0.3rem 0.4rem 0.3rem 0.8rem",
     fontSize: "0.85rem",
@@ -280,7 +280,7 @@ const styles = {
   pillRemove: {
     background: "transparent",
     border: "none",
-    color: "#6366f1",
+    color: "var(--hsg-green)",
     cursor: "pointer",
     fontSize: "1.05rem",
     lineHeight: 1,

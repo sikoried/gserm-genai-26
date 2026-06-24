@@ -9,7 +9,7 @@ import {
   Cell,
 } from "recharts";
 
-const COLORS = ["#2563eb", "#16a34a", "#dc2626", "#d97706", "#7c3aed", "#0891b2"];
+const COLORS = ["#006233", "#00814a", "#d97706", "#7c3aed", "#0891b2", "#993556"];
 
 function shortName(model) {
   return model.split("/").pop();
@@ -86,15 +86,15 @@ export default function ComparisonCharts({ results }) {
               <Tooltip
                 formatter={(v, name) => [v.toLocaleString(), { prompt: "Prompt", reasoning: "Reasoning", answer: "Answer" }[name] || name]}
               />
-              <Bar dataKey="prompt" stackId="a" fill="#93c5fd" name="prompt" radius={[0, 0, 0, 0]} />
+              <Bar dataKey="prompt" stackId="a" fill="#a3cdb7" name="prompt" radius={[0, 0, 0, 0]} />
               <Bar dataKey="reasoning" stackId="a" fill="#f59e0b" name="reasoning" radius={[0, 0, 0, 0]} />
-              <Bar dataKey="answer" stackId="a" fill="#2563eb" name="answer" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="answer" stackId="a" fill="#006233" name="answer" radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
           <div style={styles.legend}>
-            <span style={{ ...styles.dot, background: "#93c5fd" }} /> Prompt
+            <span style={{ ...styles.dot, background: "#a3cdb7" }} /> Prompt
             <span style={{ ...styles.dot, background: "#f59e0b", marginLeft: "1rem" }} /> Reasoning
-            <span style={{ ...styles.dot, background: "#2563eb", marginLeft: "1rem" }} /> Answer
+            <span style={{ ...styles.dot, background: "#006233", marginLeft: "1rem" }} /> Answer
           </div>
         </div>
       </div>

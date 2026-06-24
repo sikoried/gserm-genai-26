@@ -62,7 +62,7 @@ const styles = {
   model: {
     fontWeight: 700,
     fontSize: "0.9rem",
-    color: "#2563eb",
+    color: "var(--hsg-green)",
   },
   reasoningTag: {
     background: "#fef3c7",
@@ -78,8 +78,8 @@ const styles = {
     flexWrap: "wrap",
   },
   badge: {
-    background: "#e0f2fe",
-    color: "#0369a1",
+    background: "#e8f1ec",
+    color: "var(--hsg-green-dark)",
     borderRadius: "12px",
     padding: "0.15rem 0.6rem",
     fontSize: "0.8rem",
