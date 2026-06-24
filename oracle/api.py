@@ -72,8 +72,14 @@ class ModelInfoResponse(BaseModel):
     efforts: list[str]  # reasoning effort values this model accepts (may be empty)
 
 
+class ChatMessage(BaseModel):
+    role: str
+    content: str
+
+
 class ChatRequest(BaseModel):
     question: str
+    history: list[ChatMessage] = []  # prior turns, oldest first
     mode: str = "World"  # World | RAG | Agentic RAG
     model: str = QAConfig().model
     temperature: float = 0.0
@@ -169,7 +175,13 @@ def post_chat(req: ChatRequest) -> ChatResponse:
     except NotImplementedError as exc:  # RAG / a-rag not implemented yet
         raise HTTPException(status_code=501, detail=str(exc))
     try:
-        result = qa.answer(req.question)
+        if hasattr(qa, "answer_chat"):
+            # Conversation-aware (rag retrieves on the first message, then extends context).
+            conversation = [m.model_dump() for m in req.history]
+            conversation.append({"role": "user", "content": req.question})
+            result = qa.answer_chat(conversation)
+        else:
+            result = qa.answer(req.question)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
     return ChatResponse(answer=result.content, mode=req.mode, model=req.model)

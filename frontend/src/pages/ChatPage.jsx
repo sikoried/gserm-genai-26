@@ -47,6 +47,8 @@ export default function ChatPage() {
     const text = input.trim();
     if (!text || loading) return;
 
+    // Prior turns (before this message) — lets RAG anchor retrieval to the first message.
+    const history = (activeChat?.messages || []).map((m) => ({ role: m.role, content: m.content }));
     const userMsg = { role: "user", content: text };
     const chatId = activeChatId;
 
@@ -63,6 +65,7 @@ export default function ChatPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           question: text,
+          history,
           mode,
           model,
           temperature: parseFloat(temperature) || 0,

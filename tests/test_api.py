@@ -107,3 +107,26 @@ def test_chat_world_mode(monkeypatch):
 def test_chat_unknown_mode_is_400():
     resp = client.post("/api/chat", json={"question": "hi", "mode": "Nope"})
     assert resp.status_code == 400
+
+
+def test_chat_conversation_aware_qa_gets_history_then_question(monkeypatch):
+    from oracle.llm import UsageMetrics
+    from oracle.qa.base import Answer
+
+    seen = {}
+
+    class _FakeRag:  # has answer_chat -> conversation-aware path
+        def answer_chat(self, conversation):
+            seen["conversation"] = conversation
+            return Answer(content="rag answer", metrics=UsageMetrics(1, 1, 2, 0.1))
+
+    monkeypatch.setattr(api, "build_qa_system", lambda cfg: _FakeRag())
+    resp = client.post("/api/chat", json={
+        "question": "q2", "mode": "RAG",
+        "history": [{"role": "user", "content": "q1"},
+                    {"role": "assistant", "content": "a1"}],
+    })
+    assert resp.status_code == 200
+    assert resp.json()["answer"] == "rag answer"
+    # history + current question, in order
+    assert [m["content"] for m in seen["conversation"]] == ["q1", "a1", "q2"]
