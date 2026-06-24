@@ -15,6 +15,9 @@ data/
 .env.*
 .llmtoken
 
+# Frontend
+frontend/node_modules/
+
 # OS / editor
 .DS_Store
 .idea/

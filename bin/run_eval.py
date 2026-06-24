@@ -55,7 +55,9 @@ def main() -> None:
         print(f"  [{icon}] {r.id}: {r.verdict.upper()}")
         print(f"      Q:   {r.question}")
         print(f"      A:   {snippet}")
-        print(f"      ref: {r.reference}  |  {r.reasoning}\n")
+        print(f"      ref: {r.reference}  |  {r.reasoning}")
+        print(f"      ⏱  {r.elapsed_seconds:.2f}s  "
+              f"tokens: {r.prompt_tokens}+{r.completion_tokens}={r.total_tokens}\n")
 
     results = run_eval(config, pairs, judge_model=args.judge_model, progress=progress)
 
