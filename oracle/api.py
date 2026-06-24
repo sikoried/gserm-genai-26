@@ -89,6 +89,7 @@ class ChatResponse(BaseModel):
     answer: str
     mode: str
     model: str
+    reasoning: str | None = None  # agent reasoning trace (agentic RAG)
 
 
 # A chat "mode" maps onto a QA-system type.
@@ -184,7 +185,8 @@ def post_chat(req: ChatRequest) -> ChatResponse:
             result = qa.answer(req.question)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
-    return ChatResponse(answer=result.content, mode=req.mode, model=req.model)
+    return ChatResponse(answer=result.content, mode=req.mode, model=req.model,
+                        reasoning=result.reasoning)
 
 
 # ---------------------------------------------------------------------------

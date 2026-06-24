@@ -13,6 +13,7 @@ class Answer:
     """The result of a QA system call: the answer text plus usage metrics."""
     content: str
     metrics: UsageMetrics
+    reasoning: str | None = None  # agent reasoning trace (agentic RAG); None otherwise
 
 
 class QASystem(ABC):

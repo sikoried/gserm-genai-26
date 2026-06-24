@@ -33,7 +33,13 @@ class Embedder:
     def __init__(self, model_name: str = "all-MiniLM-L6-v2", device: str | None = None):
         from sentence_transformers import SentenceTransformer
         self.device = device or _pick_device()
-        self.model = SentenceTransformer(model_name, device=self.device)
+        try:
+            # Prefer the local cache so a query never phones home to HF — only the LLM
+            # proxy (kiz1) should be contacted at request time.
+            self.model = SentenceTransformer(model_name, device=self.device, local_files_only=True)
+        except Exception:
+            # Not cached yet (e.g. fresh checkout) — allow a one-time download.
+            self.model = SentenceTransformer(model_name, device=self.device)
 
     def encode(self, texts: list[str], batch_size: int = 256) -> np.ndarray:
         return self.model.encode(

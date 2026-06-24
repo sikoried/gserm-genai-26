@@ -218,6 +218,33 @@
   font-style: italic;
 }
 
+.message-reasoning {
+  margin-top: 8px;
+}
+
+.message-reasoning summary {
+  cursor: pointer;
+  color: var(--hsg-green);
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.message-reasoning pre {
+  margin-top: 6px;
+  padding: 10px 12px;
+  background: var(--hsg-gray-100);
+  border: 1px solid var(--hsg-gray-200);
+  border-radius: 6px;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  font-family: var(--hsg-font);
+  font-size: 0.8rem;
+  color: var(--hsg-gray-700);
+  line-height: 1.5;
+}
+
 /* ── Chat input ── */
 
 .chat-input-bar {
