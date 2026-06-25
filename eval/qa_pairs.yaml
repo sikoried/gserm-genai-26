@@ -1,26 +1,110 @@
-# Oracle — evaluation query/answer pairs (STUB)
+# Oracle — evaluation query/answer pairs (corpus-grounded)
 #
-# These are trivial placeholder examples so the eval harness has something to
-# run against. Real pairs — grounded in the NeelNanda/wiki-10k corpus and
-# scored with LLM-as-a-judge — will be authored later.
+# Each question is answerable from the NeelNanda/wiki-10k articles that the demo
+# index covers (the first ~40 alphabetical articles: Anarchism, Aristotle,
+# Abraham Lincoln, Algeria, Andorra, Alaska, ASCII, …). Reference answers are
+# concise canonical facts the article states, so the LLM-as-a-judge can score
+# correct / wrong / orthogonal. This set exercises retrieval: a world-knowledge
+# model may know many of these, but RAG must surface the right passage.
 #
-# Schema per item:
-#   id:               stable identifier
-#   question:         the query posed to a QA system
-#   reference_answer: the expected ("gold") answer the judge compares against
+# Schema per item: id, question, reference_answer.
 
-- id: ex-001
-  question: "What is the capital of France?"
-  reference_answer: "Paris"
+- id: lincoln-number
+  question: "Which number president of the United States was Abraham Lincoln?"
+  reference_answer: "The 16th president of the United States."
 
-- id: ex-002
-  question: "Who wrote the play Romeo and Juliet?"
-  reference_answer: "William Shakespeare"
+- id: lincoln-assassin
+  question: "Who assassinated Abraham Lincoln?"
+  reference_answer: "John Wilkes Booth, a Confederate sympathizer, fatally shot him."
 
-- id: ex-003
-  question: "What is the chemical symbol for water?"
-  reference_answer: "H2O"
+- id: aristotle-teacher
+  question: "Who was Aristotle's teacher?"
+  reference_answer: "Plato."
 
-- id: ex-004
-  question: "How many continents are there on Earth?"
-  reference_answer: "Seven"
+- id: aristotle-student
+  question: "Which famous ruler did Aristotle tutor?"
+  reference_answer: "Alexander the Great."
+
+- id: achilles-weakness
+  question: "What was the one vulnerable part of Achilles' body in later legend?"
+  reference_answer: "His heel — the only part where he was not invulnerable."
+
+- id: achilles-war
+  question: "In which war was the Greek hero Achilles the central warrior?"
+  reference_answer: "The Trojan War (he is the central character of Homer's Iliad)."
+
+- id: algeria-capital
+  question: "What is the capital and largest city of Algeria?"
+  reference_answer: "Algiers."
+
+- id: algeria-area
+  question: "Algeria is the largest country by total area in which continent?"
+  reference_answer: "Africa (it is the largest country by area in Africa and the Arab world)."
+
+- id: andorra-capital
+  question: "What is the capital of Andorra?"
+  reference_answer: "Andorra la Vella."
+
+- id: andorra-location
+  question: "Between which two countries is the microstate of Andorra located?"
+  reference_answer: "France and Spain, in the eastern Pyrenees."
+
+- id: alaska-size
+  question: "Is Alaska the largest U.S. state by area?"
+  reference_answer: "Yes, Alaska is by far the largest U.S. state by area."
+
+- id: alaska-capital
+  question: "What is the capital of the U.S. state of Alaska?"
+  reference_answer: "Juneau."
+
+- id: ayn-rand-philosophy
+  question: "What philosophical system did Ayn Rand develop?"
+  reference_answer: "Objectivism."
+
+- id: ayn-rand-novel
+  question: "Which 1943 novel brought Ayn Rand fame?"
+  reference_answer: "The Fountainhead."
+
+- id: ascii-expansion
+  question: "What does the acronym ASCII stand for?"
+  reference_answer: "American Standard Code for Information Interchange."
+
+- id: albedo-meaning
+  question: "What does albedo measure?"
+  reference_answer: "The diffuse reflection of solar radiation, on a scale from 0 (black body) to 1."
+
+- id: alain-connes-prize
+  question: "Which prize did the mathematician Alain Connes receive in 1982?"
+  reference_answer: "The Fields Medal."
+
+- id: anarchism-state
+  question: "What is anarchism's position on the state?"
+  reference_answer: "It calls for the abolition of the state, holding it to be unnecessary and harmful."
+
+- id: animal-farm-author
+  question: "Who wrote the novella Animal Farm?"
+  reference_answer: "George Orwell."
+
+- id: huxley-brave-new-world
+  question: "Which dystopian novel is Aldous Huxley best known for?"
+  reference_answer: "Brave New World."
+
+- id: agassi-sport
+  question: "In which sport was Andre Agassi a champion?"
+  reference_answer: "Tennis."
+
+- id: tai-meaning
+  question: "What does International Atomic Time (TAI) provide?"
+  reference_answer: "A high-precision atomic coordinate time standard based on atomic clocks."
+
+- id: arithmetic-mean
+  question: "How is the arithmetic mean of a set of numbers computed?"
+  reference_answer: "By summing the numbers and dividing by how many there are."
+
+- id: amphibian-class
+  question: "What kind of animals are amphibians?"
+  reference_answer: "Cold-blooded (ectothermic) tetrapod vertebrates such as frogs, toads, salamanders and newts."
+
+- id: alabama-capital
+  question: "What is the capital of the U.S. state of Alabama?"
+  reference_answer: "Montgomery."

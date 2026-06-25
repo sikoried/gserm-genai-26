@@ -21,6 +21,14 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
 
+# The progress printer uses ✓/✗/≈ icons; force UTF-8 so a cp1252 console
+# (Windows default) doesn't crash on them.
+try:
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
+except Exception:
+    pass
+
 from oracle.config import QAConfig  # noqa: E402
 from oracle.eval.judge import JUDGE_MODEL, VERDICTS  # noqa: E402
 from oracle.eval.runner import (  # noqa: E402

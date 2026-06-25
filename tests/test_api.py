@@ -109,6 +109,55 @@ def test_chat_unknown_mode_is_400():
     assert resp.status_code == 400
 
 
+def test_rag_profiles_lists_configs():
+    resp = client.get("/api/rag-profiles")
+    assert resp.status_code == 200
+    profiles = resp.json()
+    assert "rag" in profiles and "rag_full" in profiles  # configs/rag*.yaml stems
+
+
+def test_chat_with_rag_profile_loads_config_and_returns_sources(monkeypatch):
+    from oracle.llm import UsageMetrics
+    from oracle.qa.base import Answer
+
+    seen = {}
+
+    class _FakeRag:
+        def answer_chat(self, conversation):
+            return Answer(content="profile answer", metrics=UsageMetrics(1, 1, 2, 0.1))
+
+        def sources(self):
+            return [{"title": "Algeria", "score": 0.42, "url": "https://x"}]
+
+    real_loader = api._load_profile_config
+
+    def _spy_loader(profile, model, temperature):
+        seen["profile"] = profile
+        cfg = real_loader(profile, model, temperature)
+        seen["type"] = cfg.type
+        return cfg
+
+    monkeypatch.setattr(api, "build_qa_system", lambda cfg: _FakeRag())
+    monkeypatch.setattr(api, "_load_profile_config", _spy_loader)
+    resp = client.post("/api/chat", json={
+        "question": "what is the capital of Algeria?",
+        "mode": "RAG", "rag_profile": "rag_rerank",
+    })
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["answer"] == "profile answer"
+    assert body["profile"] == "rag_rerank"
+    assert body["sources"][0]["title"] == "Algeria"
+    assert seen["profile"] == "rag_rerank" and seen["type"] == "rag"
+
+
+def test_chat_unknown_rag_profile_is_400():
+    resp = client.post("/api/chat", json={
+        "question": "q", "mode": "RAG", "rag_profile": "nope_not_real",
+    })
+    assert resp.status_code == 400
+
+
 def test_chat_conversation_aware_qa_gets_history_then_question(monkeypatch):
     from oracle.llm import UsageMetrics
     from oracle.qa.base import Answer

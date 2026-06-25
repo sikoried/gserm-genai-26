@@ -1,0 +1,23 @@
+# Cross-encoder reranking (showcases F3).
+# Pull a deep candidate pool (fetch_k) with the bi-encoder, then reorder with a
+# cross-encoder before cutting to top_k for higher precision at the top.
+type: rag
+model: mistralai/Mistral-Medium-3.5-128B
+endpoint: https://kiz1.in.ohmportal.de/llmproxy/v1
+temperature: 0.0
+embedding_model: all-MiniLM-L6-v2
+
+chunking:
+  strategy: structural
+  target_tokens: 220
+  overlap_tokens: 40
+
+retrieval:
+  top_k: 6
+  fetch_k: 30
+  rerank: cross_encoder
+  rerank_model: cross-encoder/ms-marco-MiniLM-L-6-v2
+  mmr: false
+
+context:
+  budget_tokens: 1800

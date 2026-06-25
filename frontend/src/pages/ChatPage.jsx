@@ -5,6 +5,8 @@ const MODES = ["World", "RAG", "Agentic RAG"];
 
 export default function ChatPage() {
   const [models, setModels] = useState([]);
+  const [ragProfiles, setRagProfiles] = useState([]);
+  const [ragProfile, setRagProfile] = useState("");
   const [chats, setChats] = useState([{ id: 1, title: "New chat", messages: [] }]);
   const [activeChatId, setActiveChatId] = useState(1);
   const [input, setInput] = useState("");
@@ -26,6 +28,10 @@ export default function ChatPage() {
         setModels(list);
         if (list.length) setModel(list[0].id);
       })
+      .catch(() => {});
+    fetch("/api/rag-profiles")
+      .then((r) => r.json())
+      .then((list) => setRagProfiles(Array.isArray(list) ? list : []))
       .catch(() => {});
   }, []);
 
@@ -69,6 +75,8 @@ export default function ChatPage() {
           mode,
           model,
           temperature: parseFloat(temperature) || 0,
+          // A profile (when chosen in RAG mode) drives the advanced pipeline server-side.
+          rag_profile: mode === "RAG" && ragProfile ? ragProfile : null,
         }),
       });
       if (!res.ok) {
@@ -78,7 +86,10 @@ export default function ChatPage() {
       const data = await res.json();
       updateChat(chatId, (c) => ({
         ...c,
-        messages: [...c.messages, { role: "assistant", content: data.answer, reasoning: data.reasoning }],
+        messages: [
+          ...c.messages,
+          { role: "assistant", content: data.answer, reasoning: data.reasoning, sources: data.sources },
+        ],
       }));
     } catch (err) {
       updateChat(chatId, (c) => ({
@@ -154,6 +165,19 @@ export default function ChatPage() {
               ))}
             </select>
           </div>
+          {mode === "RAG" && ragProfiles.length > 0 && (
+            <div className="topbar-group">
+              <span className="topbar-label">Profile</span>
+              <select value={ragProfile} onChange={(e) => setRagProfile(e.target.value)}>
+                <option value="">Default</option>
+                {ragProfiles.map((p) => (
+                  <option key={p} value={p}>
+                    {p}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
         </div>
 
         <div className="chat-window">
@@ -168,6 +192,25 @@ export default function ChatPage() {
                 <details className="message-reasoning">
                   <summary>Reasoning</summary>
                   <pre>{msg.reasoning}</pre>
+                </details>
+              )}
+              {msg.sources && msg.sources.length > 0 && (
+                <details className="message-reasoning">
+                  <summary>Sources ({msg.sources.length})</summary>
+                  <ul className="message-sources">
+                    {msg.sources.map((s, j) => (
+                      <li key={j}>
+                        <span className="source-score">{s.score.toFixed(2)}</span>{" "}
+                        {s.url ? (
+                          <a href={s.url} target="_blank" rel="noreferrer">
+                            {s.title}
+                          </a>
+                        ) : (
+                          s.title
+                        )}
+                      </li>
+                    ))}
+                  </ul>
                 </details>
               )}
             </div>

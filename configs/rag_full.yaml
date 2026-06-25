@@ -1,0 +1,35 @@
+# Full advanced pipeline — every stage on (F1–F6 combined).
+# Structural chunks → multi-query expansion → cross-encoder rerank → MMR
+# diversification → small→big parent expansion → extractive compression under a
+# token budget. The aux model handles the high-volume helper calls.
+type: rag
+model: mistralai/Mistral-Medium-3.5-128B
+endpoint: https://kiz1.in.ohmportal.de/llmproxy/v1
+temperature: 0.0
+embedding_model: all-MiniLM-L6-v2
+aux_model: mistralai/Mistral-Small-3.2-24B-Instruct-2506
+
+chunking:
+  strategy: structural
+  target_tokens: 220
+  overlap_tokens: 40
+
+query:
+  transform: multi
+  num_queries: 3
+
+retrieval:
+  top_k: 6
+  fetch_k: 40
+  min_similarity: 0.20
+  rerank: cross_encoder
+  rerank_model: cross-encoder/ms-marco-MiniLM-L-6-v2
+  mmr: true
+  mmr_lambda: 0.6
+  multi_resolution: small_to_big
+  parent_level: section
+
+context:
+  budget_tokens: 1500
+  compression: extractive
+  keep_sentences: 3

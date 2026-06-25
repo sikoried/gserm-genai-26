@@ -1,0 +1,27 @@
+# Multi-query transform (showcases F6 + F5).
+# The question is expanded into several paraphrases (via the smaller aux model);
+# their candidate sets are merged + deduped before ranking, improving recall on
+# underspecified queries.
+type: rag
+model: mistralai/Mistral-Medium-3.5-128B
+endpoint: https://kiz1.in.ohmportal.de/llmproxy/v1
+temperature: 0.0
+embedding_model: all-MiniLM-L6-v2
+aux_model: mistralai/Mistral-Small-3.2-24B-Instruct-2506   # cheap helper for query expansion
+
+chunking:
+  strategy: structural
+  target_tokens: 220
+  overlap_tokens: 40
+
+query:
+  transform: multi
+  num_queries: 3
+
+retrieval:
+  top_k: 6
+  fetch_k: 40
+  min_similarity: 0.20
+
+context:
+  budget_tokens: 1800
