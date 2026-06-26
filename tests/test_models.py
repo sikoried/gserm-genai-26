@@ -8,9 +8,11 @@ def test_registry_loaded():
 
 
 def test_effort_style_uses_top_level_param():
-    # Mistral-family models are configured with reasoning: effort.
+    # Mistral-family models are configured with reasoning: effort. allowed_openai_params is
+    # included so litellm doesn't reject reasoning_effort for "openai"-classified routes.
     assert reasoning_request_kwargs("mistralai/Mistral-Medium-3.5-128B", "high") == {
-        "reasoning_effort": "high"
+        "reasoning_effort": "high",
+        "extra_body": {"allowed_openai_params": ["reasoning_effort"]},
     }
 
 

@@ -58,7 +58,10 @@ def reasoning_request_kwargs(model_id: str, effort: str | None) -> dict:
     info = _BY_ID.get(model_id)
     style = info.reasoning if info else None
     if style == "effort":
-        return {"reasoning_effort": effort}
+        # litellm rejects top-level reasoning_effort for some model routes (it classifies
+        # them as the "openai" provider); allowed_openai_params forces the param through.
+        return {"reasoning_effort": effort,
+                "extra_body": {"allowed_openai_params": ["reasoning_effort"]}}
     if style == "nested":
         return {"extra_body": {"reasoning": {"effort": effort}}}
     return {}
