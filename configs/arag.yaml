@@ -1,0 +1,5 @@
+# Agentic RAG QA system: agent decides whether to retrieve from wiki-10k.
+type: a-rag
+model: mistralai/Mistral-Medium-3.5-128B
+endpoint: https://kiz1.in.ohmportal.de/llmproxy/v1
+temperature: 0.0

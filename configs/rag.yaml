@@ -1,0 +1,5 @@
+# RAG QA system: retrieve from wiki-10k, then answer with context.
+type: rag
+model: mistralai/Mistral-Medium-3.5-128B
+endpoint: https://kiz1.in.ohmportal.de/llmproxy/v1
+temperature: 0.0
