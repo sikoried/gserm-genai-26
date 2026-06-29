@@ -89,7 +89,9 @@ class ChatResponse(BaseModel):
     answer: str
     mode: str
     model: str
-    reasoning: str | None = None  # agent reasoning trace (agentic RAG)
+    reasoning: str | None = None  # human-readable trace (agentic RAG)
+    trace: dict | None = None     # structured per-step trace + token totals (a-rag)
+    usage: dict | None = None      # per-question token breakdown (router/tools/synthesis)
 
 
 # A chat "mode" maps onto a QA-system type.
@@ -185,8 +187,10 @@ def post_chat(req: ChatRequest) -> ChatResponse:
             result = qa.answer(req.question)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
+    trace = result.trace.to_dict() if result.trace is not None else None
     return ChatResponse(answer=result.content, mode=req.mode, model=req.model,
-                        reasoning=result.reasoning)
+                        reasoning=result.reasoning, trace=trace,
+                        usage=trace["totals"] if trace else None)
 
 
 # ---------------------------------------------------------------------------

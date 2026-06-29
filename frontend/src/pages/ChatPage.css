@@ -245,6 +245,85 @@
   line-height: 1.5;
 }
 
+/* ── Agentic trace ── */
+
+.trace-view {
+  margin-top: 8px;
+}
+
+.trace-view summary {
+  cursor: pointer;
+  color: var(--hsg-green);
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.trace-table {
+  margin-top: 8px;
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.78rem;
+}
+
+.trace-table th,
+.trace-table td {
+  text-align: left;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--hsg-gray-200);
+  vertical-align: top;
+}
+
+.trace-table th {
+  color: var(--hsg-gray-700);
+  font-weight: 600;
+}
+
+.trace-table .num {
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.trace-kind {
+  display: inline-block;
+  border-radius: 4px;
+  padding: 0 6px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.trace-kind-router { background: #e8f1ec; color: var(--hsg-green-dark); }
+.trace-kind-tool { background: #fef3c7; color: #b45309; }
+.trace-kind-synthesis { background: #e0e7ff; color: #3730a3; }
+
+.trace-tool { font-weight: 600; color: var(--hsg-gray-900); }
+
+.trace-args {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.74rem;
+  color: var(--hsg-gray-700);
+}
+
+.trace-result { color: var(--hsg-gray-700); }
+
+.trace-totals {
+  margin-top: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-size: 0.76rem;
+  color: var(--hsg-gray-700);
+}
+
+.trace-totals .trace-grand {
+  font-weight: 600;
+  color: var(--hsg-gray-900);
+}
+
 /* ── Chat input ── */
 
 .chat-input-bar {

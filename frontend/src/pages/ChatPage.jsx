@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import TraceView from "../components/TraceView.jsx";
 import "./ChatPage.css";
 
 const MODES = ["World", "RAG", "Agentic RAG"];
@@ -78,7 +79,7 @@ export default function ChatPage() {
       const data = await res.json();
       updateChat(chatId, (c) => ({
         ...c,
-        messages: [...c.messages, { role: "assistant", content: data.answer, reasoning: data.reasoning }],
+        messages: [...c.messages, { role: "assistant", content: data.answer, reasoning: data.reasoning, trace: data.trace }],
       }));
     } catch (err) {
       updateChat(chatId, (c) => ({
@@ -164,11 +165,15 @@ export default function ChatPage() {
             <div key={i} className={`message ${msg.role}`}>
               <div className="message-role">{msg.role === "user" ? "You" : "Oracle"}</div>
               <div className="message-content">{msg.content}</div>
-              {msg.reasoning && (
-                <details className="message-reasoning">
-                  <summary>Reasoning</summary>
-                  <pre>{msg.reasoning}</pre>
-                </details>
+              {msg.trace ? (
+                <TraceView trace={msg.trace} />
+              ) : (
+                msg.reasoning && (
+                  <details className="message-reasoning">
+                    <summary>Reasoning</summary>
+                    <pre>{msg.reasoning}</pre>
+                  </details>
+                )
               )}
             </div>
           ))}

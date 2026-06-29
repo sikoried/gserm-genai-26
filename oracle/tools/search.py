@@ -1,12 +1,12 @@
-"""Search tool: embed a query and retrieve passages from the local wiki index."""
-from __future__ import annotations
+"""Search tool: embed a query and retrieve passages from the local wiki index.
 
-from smolagents import tool
+Embedding is local, so this tool reports 0 LLM tokens to the trace.
+"""
+from __future__ import annotations
 
 from . import runtime
 
 
-@tool
 def search(query: str, k: int = 10, min_similarity: float = 0.0) -> str:
     """Search the local wiki knowledge base for passages relevant to a query.
 

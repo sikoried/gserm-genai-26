@@ -22,6 +22,12 @@ class QAConfig(BaseModel):
     # --- RAG ---
     top_k: int = 10  # number of retrieved chunks used as context (rag)
     embedding_model: str = "all-MiniLM-L6-v2"  # local embedding model for retrieval
+    # --- Agentic RAG (a-rag) ---
+    router_model: str = "Qwen/Qwen2.5-1.5B-Instruct"  # local small LLM that routes tools
+    router_device: str | None = None  # None = auto (mps/cuda/cpu)
+    router_max_gb: float = 6.0  # memory ceiling guardrail for the router model
+    max_steps: int = 6  # hard cap on tool calls before forced synthesis
+    agent_timeout_seconds: float = 120.0  # wall-clock budget per question
 
     @classmethod
     def from_yaml(cls, path: str | Path) -> "QAConfig":

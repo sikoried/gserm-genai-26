@@ -109,6 +109,39 @@ def test_chat_unknown_mode_is_400():
     assert resp.status_code == 400
 
 
+def test_chat_agentic_carries_structured_trace(monkeypatch):
+    # The a-rag path attaches an AgentTrace; the API must surface it as `trace` + `usage`.
+    from oracle.llm import UsageMetrics
+    from oracle.qa.base import Answer
+    from oracle.agent.trace import AgentTrace, TraceStep
+
+    trace = AgentTrace(stop_reason="done", elapsed_seconds=0.3, steps=[
+        TraceStep(0, "router", "calculator", {"expression": "2+2"}, "call calculator", 5, 2),
+        TraceStep(1, "tool", "calculator", {"expression": "2+2"}, "4", 0, 0, 0.001),
+        TraceStep(2, "synthesis", None, None, "The answer is 4.", 11, 4, 0.2),
+    ])
+
+    class _FakeARag:
+        def answer_chat(self, conversation):
+            return Answer(content="The answer is 4.",
+                          metrics=UsageMetrics(16, 6, 22, 0.3),
+                          reasoning=trace.as_text(), trace=trace)
+
+    monkeypatch.setattr(api, "build_qa_system", lambda cfg: _FakeARag())
+    resp = client.post("/api/chat", json={"question": "2+2?", "mode": "Agentic RAG"})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["answer"] == "The answer is 4."
+    # structured trace present, with the tool step visible
+    steps = body["trace"]["steps"]
+    assert [s["kind"] for s in steps] == ["router", "tool", "synthesis"]
+    assert steps[1]["tool"] == "calculator" and steps[1]["total_tokens"] == 0
+    # per-question token breakdown
+    assert body["usage"]["total_tokens"] == 22
+    assert body["usage"]["tools"]["total"] == 0
+    assert body["trace"]["stop_reason"] == "done"
+
+
 def test_chat_conversation_aware_qa_gets_history_then_question(monkeypatch):
     from oracle.llm import UsageMetrics
     from oracle.qa.base import Answer

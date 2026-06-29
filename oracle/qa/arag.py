@@ -1,32 +1,40 @@
-"""`a-rag` (agentic RAG): a smolagents agent that decides whether to retrieve.
+"""`a-rag` (agentic RAG): a local tool router drives tools, the proxy synthesizes.
 
-The agent first reasons whether a retrieval step is needed; when it is, it searches
-the local wiki index (optionally rewriting a short query first) and, if a search comes
-back empty, rephrases once and retries — never more than twice. The general prompt
-structure is reused from the basic ``rag`` system.
+Division of labour (see ``tools.md``):
+
+- a small **local** LLM (``agent.LocalRouter``, default Qwen2.5-1.5B) decides, per
+  step, which tool to call — search, query-rewrite, calculator, date, unit
+  convert, wiki-lookup, list-pick — to answer bar-quiz questions;
+- the bounded, always-terminating ``agent.run_agent`` loop enforces the step
+  budget, loop guards and timeout;
+- the large proxy model is invoked once at the end to **synthesize** the final
+  answer from the evidence the tools gathered.
+
+The smolagents tools live in ``oracle.tools``. The run produces a structured
+``AgentTrace`` (per-step tool calls + token accounting + stop reason) carried on
+the ``Answer``.
 """
 from __future__ import annotations
-
-from smolagents import OpenAIServerModel, ToolCallingAgent
 
 from .base import Answer, QASystem
 from .rag import DEFAULT_SYSTEM_PROMPT
 from ..config import QAConfig
-from ..llm import UsageMetrics, load_token, make_client
+from ..llm import UsageMetrics, chat_with_metrics, make_client
+from ..models import reasoning_request_kwargs
 from ..retrieval import Embedder, load_retriever
 from .. import tools
+from ..agent import LocalRouter, run_agent
 
-AGENT_INSTRUCTIONS = (
-    f"{DEFAULT_SYSTEM_PROMPT}\n\n"
-    "You have a `search` tool over a local wiki knowledge base and a `query_rewrite` tool.\n"
-    "First reason whether retrieval is needed: if the latest message can be answered from "
-    "the conversation so far, answer directly without searching.\n"
-    "When you do need information, call `search` with a descriptive sentence; if the query "
-    "is short, call `query_rewrite` first so its embedding is more characteristic.\n"
-    "If a search returns no results, rephrase the query once with `query_rewrite` and search "
-    "again — never search more than twice."
+SYNTHESIS_SYSTEM_PROMPT = (
+    "You are answering a bar-quiz question. Use the evidence gathered by the tools "
+    "below, plus your own knowledge, to give a SHORT, exact answer (a name, number, "
+    "year, or phrase) — not an essay. If the evidence is empty or unhelpful, answer "
+    "from your own knowledge; if you genuinely cannot determine it, say so briefly."
 )
 
+
+# --- message helpers (retained: sanitize an empty assistant turn if a proxy model
+# ever drives the loop; also covered by tests/test_arag.py) ---------------------
 
 def _message_text(content) -> str:
     """Flatten string- or list-of-parts message content to plain text."""
@@ -39,13 +47,7 @@ def _message_text(content) -> str:
 
 
 def _sanitize_messages(messages):
-    """Mistral rejects assistant messages with empty content and no tool calls.
-
-    smolagents can emit such a (model-produced) empty step mid-loop and re-send it,
-    crashing the run. The role may be a ``MessageRole`` enum and the content a list of
-    parts (e.g. ``[{"type": "text", "text": ""}]``), so check both shapes and give an
-    empty assistant message a placeholder so the agent loop survives.
-    """
+    """Give an empty assistant message a placeholder (Mistral rejects empty turns)."""
     for m in messages or []:
         if not isinstance(m, dict) or "assistant" not in str(m.get("role", "")).lower():
             continue
@@ -66,7 +68,7 @@ def _fmt_args(args) -> str:
 
 
 def _build_trace(steps) -> str:
-    """A compact, human-readable trace of the agent's tool use (its reasoning)."""
+    """A compact, human-readable trace of tool use (legacy smolagents-step form)."""
     lines: list[str] = []
     for step in steps:
         if type(step).__name__ != "ActionStep":
@@ -82,10 +84,16 @@ def _build_trace(steps) -> str:
     return "\n".join(lines) if lines else "Answered directly — no retrieval was needed."
 
 
+def _last_user_question(history: list[dict]) -> str:
+    return next((m.get("content", "") for m in reversed(history)
+                 if m.get("role") == "user"), "")
+
+
 class AgenticRagQA(QASystem):
-    # Index + embedder are heavy; share them across instances in the process.
+    # Index, embedder, and router are heavy; share them across instances.
     _retriever = None
     _embedder = None
+    _router = None
 
     def __init__(self, config: QAConfig):
         super().__init__(config)
@@ -93,60 +101,57 @@ class AgenticRagQA(QASystem):
             AgenticRagQA._retriever = load_retriever()
         if AgenticRagQA._embedder is None:
             AgenticRagQA._embedder = Embedder(config.embedding_model)
+        self.client = make_client(config.endpoint)
         tools.configure(AgenticRagQA._retriever, AgenticRagQA._embedder,
-                        make_client(config.endpoint), config.model)
-        self.model = OpenAIServerModel(
-            model_id=config.model, api_base=config.endpoint, api_key=load_token(),
-            temperature=config.temperature, max_tokens=2048,
-            # Bound the per-call wait and generation length: smolagents' default client
-            # allows a 600s read with 2 retries (~30 min), so a stalled or runaway-reasoning
-            # Mistral call reads as a hang in the GUI.
-            client_kwargs={"timeout": 90.0, "max_retries": 1},
+                        self.client, config.model)
+        if AgenticRagQA._router is None:
+            AgenticRagQA._router = LocalRouter(
+                config.router_model, tools.tool_metas(),
+                device=config.router_device, max_gb=config.router_max_gb,
+            )
+
+    def _synthesize(self, question: str, history: list[dict],
+                    observations: list[dict]):
+        context = "\n\n".join(f"[{o['tool']}] {o['result']}" for o in observations) \
+            or "(no tool results)"
+        messages = [
+            {"role": "system", "content": SYNTHESIS_SYSTEM_PROMPT},
+            *history,
+            {"role": "user",
+             "content": f"{question}\n\nEvidence gathered by tools:\n{context}"},
+        ]
+        content, metrics = chat_with_metrics(
+            self.client, self.config.model, messages,
+            temperature=self.config.temperature,
+            **reasoning_request_kwargs(self.config.model, self.config.reasoning_effort),
         )
-        self._patch_model_client()
-        self.agent = ToolCallingAgent(
-            tools=[tools.query_rewrite, tools.search], model=self.model,
-            instructions=AGENT_INSTRUCTIONS, max_steps=6,
+        return (content.strip(), metrics.prompt_tokens,
+                metrics.completion_tokens, metrics.elapsed_seconds)
+
+    def _run(self, question: str, history: list[dict]) -> Answer:
+        result = run_agent(
+            question=question, history=history, router=AgenticRagQA._router,
+            tools_by_name=tools.TOOLS_BY_NAME, synthesize=self._synthesize,
+            reset_tool_tokens=tools.reset_tool_tokens,
+            get_tool_tokens=tools.get_tool_tokens,
+            max_steps=self.config.max_steps,
+            timeout_seconds=self.config.agent_timeout_seconds,
         )
-
-    def _patch_model_client(self) -> None:
-        """Sanitize outgoing messages so an empty assistant turn can't crash the run."""
-        create = self.model.client.chat.completions.create
-
-        def patched(*args, **kwargs):
-            if "messages" in kwargs:
-                kwargs["messages"] = _sanitize_messages(kwargs["messages"])
-            return create(*args, **kwargs)
-
-        self.model.client.chat.completions.create = patched
-
-    def _run(self, task: str) -> Answer:
-        try:
-            result = self.agent.run(task, reset=True, return_full_result=True)
-        except Exception as exc:
-            raise RuntimeError(
-                f"Agentic RAG did not complete — the model stalled or errored: {exc}"
-            ) from exc
-        usage, timing = result.token_usage, result.timing
-        elapsed = 0.0
-        if timing and timing.start_time and timing.end_time:
-            elapsed = round(timing.end_time - timing.start_time, 3)
+        totals = result.trace.totals()
         metrics = UsageMetrics(
-            prompt_tokens=getattr(usage, "input_tokens", 0) or 0,
-            completion_tokens=getattr(usage, "output_tokens", 0) or 0,
-            total_tokens=getattr(usage, "total_tokens", 0) or 0,
-            elapsed_seconds=elapsed,
+            prompt_tokens=totals.prompt_tokens,
+            completion_tokens=totals.completion_tokens,
+            total_tokens=totals.total_tokens,
+            elapsed_seconds=result.trace.elapsed_seconds,
         )
-        # Use memory.steps (TaskStep/ActionStep objects) — result.steps are plain dicts.
-        return Answer(content=str(result.output).strip(), metrics=metrics,
-                      reasoning=_build_trace(self.agent.memory.steps))
+        return Answer(content=result.answer, metrics=metrics,
+                      reasoning=result.trace.as_text(), trace=result.trace)
 
     def answer(self, question: str) -> Answer:
-        return self._run(question)
+        return self._run(question, [])
 
     def answer_chat(self, history: list[dict]) -> Answer:
-        convo = "\n".join(f"{m.get('role')}: {m.get('content')}" for m in history)
-        return self._run(
-            f"Conversation so far:\n{convo}\n\nReason whether new retrieval is needed, "
-            "then answer the latest user message."
-        )
+        """Multi-turn: the last user message is the question, prior turns are context."""
+        question = _last_user_question(history)
+        prior = history[:-1] if history and history[-1].get("role") == "user" else history
+        return self._run(question, prior)
