@@ -15,9 +15,12 @@ function shortName(model) {
   return model.split("/").pop();
 }
 
-// Distinguishes the same model added with different reasoning settings.
+// Distinguishes entries with different model/mode/reasoning combinations.
 function entryLabel(r) {
-  return shortName(r.model) + (r.reasoning_effort ? ` · ${r.reasoning_effort}` : "");
+  let label = shortName(r.model);
+  if (r.mode && r.mode !== "World") label += ` · ${r.mode}`;
+  if (r.reasoning_effort) label += ` · ${r.reasoning_effort}`;
+  return label;
 }
 
 export default function ComparisonCharts({ results }) {
@@ -105,6 +108,7 @@ export default function ComparisonCharts({ results }) {
         <thead>
           <tr>
             <th style={styles.th}>Model</th>
+            <th style={styles.th}>Mode</th>
             <th style={styles.th}>Time (s)</th>
             <th style={styles.th}>Prompt tokens</th>
             <th style={styles.th}>Completion tokens</th>
@@ -116,14 +120,16 @@ export default function ComparisonCharts({ results }) {
           {results.map((r, i) =>
             r.error ? (
               <tr key={i} style={{ background: i % 2 === 0 ? "#f9fafb" : "#fff" }}>
-                <td style={styles.td}>{entryLabel(r)}</td>
-                <td style={{ ...styles.td, color: "#b91c1c" }} colSpan={5}>
+                <td style={styles.td}>{shortName(r.model)}</td>
+                <td style={styles.td}>{r.mode || "World"}</td>
+                <td style={{ ...styles.td, color: "#b91c1c" }} colSpan={4}>
                   error: {r.error}
                 </td>
               </tr>
             ) : (
               <tr key={i} style={{ background: i % 2 === 0 ? "#f9fafb" : "#fff" }}>
-                <td style={styles.td}>{entryLabel(r)}</td>
+                <td style={styles.td}>{shortName(r.model)}</td>
+                <td style={styles.td}>{r.mode || "World"}</td>
                 <td style={{ ...styles.td, textAlign: "right" }}>{r.elapsed_seconds.toFixed(2)}</td>
                 <td style={{ ...styles.td, textAlign: "right" }}>{r.prompt_tokens.toLocaleString()}</td>
                 <td style={{ ...styles.td, textAlign: "right" }}>{r.completion_tokens.toLocaleString()}</td>

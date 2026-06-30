@@ -1,6 +1,23 @@
+const MODE_COLORS = {
+  "World":       { background: "#e0f2fe", color: "#0369a1" },
+  "RAG":         { background: "#dcfce7", color: "#15803d" },
+  "Agentic RAG": { background: "#fef3c7", color: "#b45309" },
+};
+
+function ModeBadge({ mode }) {
+  if (!mode) return null;
+  const { background, color } = MODE_COLORS[mode] || { background: "#f3f4f6", color: "#555" };
+  return (
+    <span style={{ background, color, borderRadius: "12px", padding: "0.1rem 0.5rem",
+                   fontSize: "0.75rem", fontWeight: 600 }}>
+      {mode}
+    </span>
+  );
+}
+
 export default function ModelCard({ result }) {
   const reasoningTag = result.reasoning_effort ? (
-    <span style={styles.reasoningTag}>🧠 {result.reasoning_effort}</span>
+    <span style={styles.reasoningTag}>reasoning: {result.reasoning_effort}</span>
   ) : null;
 
   if (result.error) {
@@ -9,6 +26,7 @@ export default function ModelCard({ result }) {
         <div style={styles.header}>
           <span style={styles.titleWrap}>
             <span style={styles.model}>{result.model}</span>
+            <ModeBadge mode={result.mode} />
             {reasoningTag}
           </span>
           <span style={styles.errorBadge}>failed</span>
@@ -23,6 +41,7 @@ export default function ModelCard({ result }) {
       <div style={styles.header}>
         <span style={styles.titleWrap}>
           <span style={styles.model}>{result.model}</span>
+          <ModeBadge mode={result.mode} />
           {reasoningTag}
         </span>
         <div style={styles.badges}>

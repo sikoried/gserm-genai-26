@@ -3,6 +3,7 @@ import ComparisonCharts from "../components/ComparisonCharts.jsx";
 import ModelCard from "../components/ModelCard.jsx";
 
 const DEFAULT_ENDPOINT = "https://kiz1.in.ohmportal.de/llmproxy/v1";
+const MODES = ["World", "RAG", "Agentic RAG"];
 
 function shortName(model) {
   return model.split("/").pop();
@@ -12,15 +13,15 @@ export default function ComparisonPage() {
   const [question, setQuestion] = useState("");
   const [endpoint, setEndpoint] = useState(DEFAULT_ENDPOINT);
   const [models, setModels] = useState([]);
-  // The comparison list: each entry is { model, reasoning_effort }.
+  // Each entry: { model, mode, reasoning_effort }
   const [entries, setEntries] = useState([]);
   const [pickModel, setPickModel] = useState("");
+  const [pickMode, setPickMode] = useState("World");
   const [pickReasoning, setPickReasoning] = useState("off");
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  // Load the available models (and their reasoning options) from the backend.
   useEffect(() => {
     fetch("/api/models")
       .then((r) => r.json())
@@ -36,17 +37,17 @@ export default function ComparisonPage() {
 
   function changeModel(id) {
     setPickModel(id);
-    setPickReasoning("off"); // reasoning options are model-specific
+    setPickReasoning("off");
   }
 
   function addEntry() {
     if (!pickModel) return;
     const reasoning_effort = pickReasoning === "off" ? null : pickReasoning;
-    // Skip exact duplicates (same model + same reasoning setting).
-    if (entries.some((e) => e.model === pickModel && e.reasoning_effort === reasoning_effort)) {
-      return;
-    }
-    setEntries((prev) => [...prev, { model: pickModel, reasoning_effort }]);
+    // Skip exact duplicates (same model + mode + reasoning).
+    if (entries.some(
+      (e) => e.model === pickModel && e.mode === pickMode && e.reasoning_effort === reasoning_effort
+    )) return;
+    setEntries((prev) => [...prev, { model: pickModel, mode: pickMode, reasoning_effort }]);
   }
 
   function removeEntry(i) {
@@ -56,7 +57,7 @@ export default function ComparisonPage() {
   async function handleCompare() {
     if (!question.trim()) return;
     if (entries.length === 0) {
-      setError("Add at least one model to the comparison.");
+      setError("Add at least one entry to the comparison.");
       return;
     }
     setLoading(true);
@@ -85,8 +86,8 @@ export default function ComparisonPage() {
       <div style={styles.container}>
         <h1 style={{ marginBottom: "0.25rem" }}>Model Comparison</h1>
         <p style={{ color: "#666", marginBottom: "1.5rem" }}>
-          Build a comparison list — add the same or different models, with or without
-          reasoning — and compare response time and token cost.
+          Build a comparison list — mix models and modes (World, RAG, Agentic RAG) — and
+          compare response time and token cost.
         </p>
 
         {/* Question + endpoint */}
@@ -108,22 +109,34 @@ export default function ComparisonPage() {
           />
         </section>
 
-        {/* Comparison list builder */}
+        {/* Entry builder */}
         <section style={styles.card}>
-          <label style={styles.label}>Add model to comparison</label>
+          <label style={styles.label}>Add entry to comparison</label>
           <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", alignItems: "center" }}>
+            {/* Model selector */}
             <select
-              style={{ ...styles.input, flex: "2 1 240px", width: "auto" }}
+              style={{ ...styles.input, flex: "2 1 220px", width: "auto" }}
               value={pickModel}
               onChange={(e) => changeModel(e.target.value)}
             >
               {models.length === 0 && <option value="">Loading models…</option>}
               {models.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.label}
-                </option>
+                <option key={m.id} value={m.id}>{m.label}</option>
               ))}
             </select>
+
+            {/* Mode selector */}
+            <select
+              style={{ ...styles.input, flex: "1 1 130px", width: "auto" }}
+              value={pickMode}
+              onChange={(e) => setPickMode(e.target.value)}
+            >
+              {MODES.map((m) => (
+                <option key={m} value={m}>{m}</option>
+              ))}
+            </select>
+
+            {/* Reasoning selector */}
             <select
               style={{ ...styles.input, flex: "1 1 150px", width: "auto" }}
               value={pickReasoning}
@@ -133,34 +146,30 @@ export default function ComparisonPage() {
             >
               <option value="off">No reasoning</option>
               {efforts.map((eff) => (
-                <option key={eff} value={eff}>
-                  Reasoning: {eff}
-                </option>
+                <option key={eff} value={eff}>Reasoning: {eff}</option>
               ))}
             </select>
-            <button style={styles.btnSecondary} onClick={addEntry}>
-              Add
-            </button>
+
+            <button style={styles.btnSecondary} onClick={addEntry}>Add</button>
           </div>
 
-          {/* Comparison list as pills */}
+          {/* Entry pills */}
           <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem", marginTop: "0.85rem" }}>
             {entries.length === 0 && (
-              <span style={{ color: "#888", fontSize: "0.85rem" }}>No models added yet.</span>
+              <span style={{ color: "#888", fontSize: "0.85rem" }}>No entries added yet.</span>
             )}
             {entries.map((e, i) => (
               <span key={i} style={styles.pill}>
                 <span>{shortName(e.model)}</span>
+                <span style={modeBadgeStyle(e.mode)}>{e.mode}</span>
                 {e.reasoning_effort && (
-                  <span style={styles.pillReasoning}>🧠 {e.reasoning_effort}</span>
+                  <span style={styles.pillReasoning}>reasoning: {e.reasoning_effort}</span>
                 )}
                 <button
                   style={styles.pillRemove}
                   onClick={() => removeEntry(i)}
-                  aria-label={`remove ${e.model}`}
-                >
-                  ×
-                </button>
+                  aria-label={`remove entry ${i}`}
+                >×</button>
               </span>
             ))}
           </div>
@@ -179,7 +188,6 @@ export default function ComparisonPage() {
         {results.length > 0 && (
           <>
             <ComparisonCharts results={results} />
-
             <h2 style={{ marginTop: "2rem", marginBottom: "1rem" }}>Answers</h2>
             <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
               {results.map((r, i) => (
@@ -191,6 +199,24 @@ export default function ComparisonPage() {
       </div>
     </div>
   );
+}
+
+const MODE_COLORS = {
+  "World":       { background: "#e0f2fe", color: "#0369a1" },
+  "RAG":         { background: "#dcfce7", color: "#15803d" },
+  "Agentic RAG": { background: "#fef3c7", color: "#b45309" },
+};
+
+function modeBadgeStyle(mode) {
+  const { background, color } = MODE_COLORS[mode] || { background: "#f3f4f6", color: "#555" };
+  return {
+    background,
+    color,
+    borderRadius: "12px",
+    padding: "0.05rem 0.45rem",
+    fontSize: "0.75rem",
+    fontWeight: 600,
+  };
 }
 
 const styles = {

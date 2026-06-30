@@ -20,6 +20,22 @@ from .config import DEFAULT_ENDPOINT, QAConfig
 from .models import MODELS
 from .qa import build_qa_system
 
+_REPO = Path(__file__).resolve().parent.parent
+_TYPE_CONFIG_FILES = {
+    "world": _REPO / "configs" / "world.yaml",
+    "rag":   _REPO / "configs" / "rag.yaml",
+    "a-rag": _REPO / "configs" / "arag.yaml",
+}
+
+def _build_chat_config(qa_type: str, model: str, temperature: float) -> QAConfig:
+    """Load the YAML config for `qa_type` (if it exists) and overlay request params."""
+    config_file = _TYPE_CONFIG_FILES.get(qa_type)
+    if config_file and config_file.exists():
+        base = QAConfig.from_yaml(config_file)
+        return base.model_copy(update={"model": model, "temperature": temperature})
+    return QAConfig(type=qa_type, model=model, endpoint=DEFAULT_ENDPOINT,
+                    temperature=temperature)
+
 app = FastAPI(title="Oracle API")
 
 app.add_middleware(
@@ -44,6 +60,7 @@ class AnswerRequest(BaseModel):
 
 class AnswerResponse(BaseModel):
     model: str
+    mode: str = "World"  # echo of the requested mode
     reasoning_effort: str | None = None  # echo of the requested setting (None = off)
     answer: str = ""
     prompt_tokens: int = 0
@@ -56,6 +73,7 @@ class AnswerResponse(BaseModel):
 
 class CompareEntry(BaseModel):
     model: str
+    mode: str = "World"  # World | RAG | Agentic RAG
     reasoning_effort: str | None = None  # "low"/"medium"/"high"; None = no reasoning
 
 
@@ -101,13 +119,16 @@ MODE_TO_TYPE = {"World": "world", "RAG": "rag", "Agentic RAG": "a-rag"}
 # ---------------------------------------------------------------------------
 
 def _answer_one(question: str, model: str, endpoint: str, temperature: float,
-                reasoning_effort: str | None = None) -> AnswerResponse:
-    config = QAConfig(type="world", model=model, endpoint=endpoint,
-                      temperature=temperature, reasoning_effort=reasoning_effort)
+                reasoning_effort: str | None = None,
+                mode: str = "World") -> AnswerResponse:
+    qa_type = MODE_TO_TYPE.get(mode, "world")
+    config = _build_chat_config(qa_type, model, temperature)
+    config = config.model_copy(update={"reasoning_effort": reasoning_effort})
     qa = build_qa_system(config)
     result = qa.answer(question)
     return AnswerResponse(
         model=model,
+        mode=mode,
         reasoning_effort=reasoning_effort,
         answer=result.content,
         prompt_tokens=result.metrics.prompt_tokens,
@@ -148,7 +169,7 @@ def post_compare(req: CompareRequest) -> list[AnswerResponse]:
     with concurrent.futures.ThreadPoolExecutor(max_workers=len(req.entries)) as pool:
         futures = {
             pool.submit(_answer_one, req.question, entry.model, req.endpoint,
-                        req.temperature, entry.reasoning_effort): i
+                        req.temperature, entry.reasoning_effort, entry.mode): i
             for i, entry in enumerate(req.entries)
         }
         for future in concurrent.futures.as_completed(futures):
@@ -158,6 +179,7 @@ def post_compare(req: CompareRequest) -> list[AnswerResponse]:
                 results[i] = future.result()
             except Exception as exc:
                 results[i] = AnswerResponse(model=entry.model,
+                                            mode=entry.mode,
                                             reasoning_effort=entry.reasoning_effort,
                                             error=str(exc))
 
@@ -169,8 +191,7 @@ def post_chat(req: ChatRequest) -> ChatResponse:
     qa_type = MODE_TO_TYPE.get(req.mode)
     if qa_type is None:
         raise HTTPException(status_code=400, detail=f"Unknown mode: {req.mode!r}")
-    config = QAConfig(type=qa_type, model=req.model, endpoint=DEFAULT_ENDPOINT,
-                      temperature=req.temperature)
+    config = _build_chat_config(qa_type, req.model, req.temperature)
     try:
         qa = build_qa_system(config)
     except NotImplementedError as exc:  # RAG / a-rag not implemented yet

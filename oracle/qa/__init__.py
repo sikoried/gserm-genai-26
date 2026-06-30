@@ -13,7 +13,7 @@ def build_qa_system(config: QAConfig) -> QASystem:
     if config.type == "rag":
         return RagQA(config)
     if config.type == "a-rag":
-        from .arag import AgenticRagQA  # lazy: pulls smolagents only when used
+        from .arag import AgenticRagQA
         return AgenticRagQA(config)
     raise NotImplementedError(f"QA type {config.type!r} is not implemented yet")
 
