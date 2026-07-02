@@ -61,8 +61,14 @@ class CrossEncoderReranker(Reranker):
         if not hits:
             return hits
         model = self._load()
-        scores = model.predict([(query, h.text) for h in hits])
-        order = np.argsort(np.asarray(scores, dtype="float32"))[::-1]
+        raw = np.asarray(model.predict([(query, h.text) for h in hits]),
+                         dtype="float32")
+        # ms-marco cross-encoders emit unbounded logits; squash with a sigmoid so
+        # the stored score is a (0,1) relevance probability, comparable to the
+        # cosine scores used elsewhere. Sigmoid is monotonic, so the order below
+        # is identical to ordering by the raw logits.
+        scores = 1.0 / (1.0 + np.exp(-raw))
+        order = np.argsort(scores)[::-1]
         out: list[Hit] = []
         for rank in order:
             h = hits[int(rank)]

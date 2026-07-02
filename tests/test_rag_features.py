@@ -15,7 +15,7 @@ from oracle.qa import context as ctxmod
 from oracle.qa import query as qmod
 from oracle.qa.rag import RagQA
 from oracle.retrieval.chunking import (
-    FixedChunker, StructuralChunker, build_chunker,
+    FixedChunker, SemanticChunker, StructuralChunker, build_chunker,
 )
 from oracle.retrieval.index import check_chunking_mismatch
 from oracle.retrieval.rerank import CrossEncoderReranker, MmrReranker, mmr_select
@@ -111,6 +111,74 @@ def test_build_chunker_dispatch():
     assert isinstance(build_chunker(QAConfig(type="rag").chunking), FixedChunker)
     structural = QAConfig(type="rag", chunking={"strategy": "structural"}).chunking
     assert isinstance(build_chunker(structural), StructuralChunker)
+    semantic = QAConfig(type="rag", chunking={"strategy": "semantic"}).chunking
+    chunker = build_chunker(semantic, embed_fn=lambda xs: np.zeros((len(xs), 2)))
+    assert isinstance(chunker, SemanticChunker)
+
+
+# ---------------------------------------------------------------------------
+# F1 — semantic chunking (topical split with a fake embedder, offline)
+# ---------------------------------------------------------------------------
+
+def _topic_embed(sentences):
+    """Fake normalized embedder: 'apple' sentences -> [1,0], else -> [0,1]."""
+    return np.array([[1.0, 0.0] if "apple" in s.lower() else [0.0, 1.0]
+                     for s in sentences], dtype="float32")
+
+
+_TWO_TOPIC_DOC = {
+    "id": "7", "title": "T", "url": "u",
+    "text": ("Apples are a red fruit. Apple trees blossom in spring. "
+             "The Moon orbits the Earth. The Moon has many craters."),
+}
+
+
+def test_semantic_splits_on_topic_change():
+    chunker = SemanticChunker(target_tokens=200, overlap_tokens=0,
+                              semantic_threshold=0.55, embed_fn=_topic_embed)
+    children, parents = chunker.split(_TWO_TOPIC_DOC)
+    assert parents == []  # semantic output is flat (no small->big)
+    assert len(children) == 2  # one apple chunk, one moon chunk
+    assert "Apple" in children[0].text and "Moon" not in children[0].text
+    assert "Moon" in children[1].text and "Apple" not in children[1].text
+
+
+def test_semantic_respects_token_budget():
+    # One topic (no semantic breaks) but long -> budget forces multiple children.
+    text = "Apple data point alpha beta. " * 30  # ~5 tokens/sentence, 30 sentences
+    doc = {"id": "8", "title": "T", "url": "u", "text": text}
+    children, _ = SemanticChunker(target_tokens=20, overlap_tokens=0,
+                                  embed_fn=_topic_embed).split(doc)
+    assert len(children) > 1
+    assert max(count_tokens(c.text) for c in children) <= 20
+
+
+def test_semantic_overlap_carries_context_without_exceeding_budget():
+    # Same topic, varied sentence lengths so a budget break leaves room for a
+    # short trailing sentence to be carried into the next chunk.
+    text = ("Apple alpha beta gamma delta epsilon. Apple two. "
+            "Apple three. Apple four.")
+    doc = {"id": "8", "title": "T", "url": "u", "text": text}
+    no_ovl, _ = SemanticChunker(target_tokens=12, overlap_tokens=0,
+                                embed_fn=_topic_embed).split(doc)
+    ovl, _ = SemanticChunker(target_tokens=12, overlap_tokens=4,
+                             embed_fn=_topic_embed).split(doc)
+    assert len(ovl) == len(no_ovl) == 2
+    # Overlap pulls the later chunk's start back into the prior chunk's span...
+    assert ovl[1].start_char < no_ovl[1].start_char
+    assert "Apple two" in ovl[1].text and "Apple two" not in no_ovl[1].text
+    # ...but never lets a chunk exceed the token budget.
+    assert max(count_tokens(c.text) for c in ovl) <= 12
+
+
+def test_semantic_without_embedder_degrades_to_structural():
+    # No embed_fn -> behaves like StructuralChunker (emits small->big parents).
+    chunker = SemanticChunker(target_tokens=30, overlap_tokens=8, embed_fn=None)
+    children, parents = chunker.split(_DOC)
+    structural_children, structural_parents = StructuralChunker(
+        target_tokens=30, overlap_tokens=8).split(_DOC)
+    assert [c.text for c in children] == [c.text for c in structural_children]
+    assert len(parents) == len(structural_parents) > 0
 
 
 # ---------------------------------------------------------------------------

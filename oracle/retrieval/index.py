@@ -73,7 +73,12 @@ def build_index(config: QAConfig | None = None, *, max_docs: int | None = None,
     if max_docs:
         ds = ds.select(range(min(max_docs, ds.num_rows)))
 
-    chunker = build_chunker(chunking)
+    # The embedder is built up front so the `semantic` strategy can embed sentences
+    # at chunk time; it is then reused to embed the resulting chunks (one model load).
+    log(f"loading embedder {model_name} ...")
+    embedder = Embedder(model_name)
+    log(f"  device: {embedder.device}")
+    chunker = build_chunker(chunking, embed_fn=embedder.encode)
     log(f"chunking {ds.num_rows:,} documents (strategy={chunking.strategy}) ...")
     children: list[Chunk] = []
     parents: list[Chunk] = []
@@ -83,9 +88,7 @@ def build_index(config: QAConfig | None = None, *, max_docs: int | None = None,
         parents.extend(p)
     log(f"  -> {len(children):,} child chunks, {len(parents):,} parents")
 
-    log(f"embedding with {model_name} ...")
-    embedder = Embedder(model_name)
-    log(f"  device: {embedder.device}")
+    log(f"embedding {len(children):,} chunks ...")
     embeddings = embedder.encode([c.text for c in children])
 
     cache_dir.mkdir(parents=True, exist_ok=True)
@@ -151,7 +154,8 @@ def check_chunking_mismatch(config: QAConfig, meta: dict) -> str | None:
         return None
     cached = meta.get("chunking") or {}
     want: ChunkingConfig = config.chunking
-    fields = ["strategy", "target_tokens", "overlap_tokens", "size", "overlap"]
+    fields = ["strategy", "target_tokens", "overlap_tokens", "semantic_threshold",
+              "size", "overlap"]
     diffs = []
     for field in fields:
         cv = cached.get(field)

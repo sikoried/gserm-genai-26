@@ -36,7 +36,8 @@ from oracle.config import QAConfig  # noqa: E402
 from oracle.eval.judge import JUDGE_MODEL  # noqa: E402
 
 DEFAULT_PROFILES = [
-    "rag", "rag_structural", "rag_multi", "rag_rerank", "rag_compress", "rag_full",
+    "rag", "rag_structural", "rag_semantic", "rag_multi", "rag_rerank",
+    "rag_compress", "rag_full",
 ]
 
 
@@ -50,9 +51,23 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--baseline", default="rag", help="profile used as the delta reference")
     p.add_argument("--rebuild", action="store_true",
                    help="rebuild the index before each distinct chunking strategy")
-    p.add_argument("--max-docs", type=int, default=None, help="--max-docs for --rebuild")
+    p.add_argument("--max-docs", type=int, default=None,
+                   help="default --max-docs for --rebuild (None = all 10k)")
+    p.add_argument("--max-docs-for", nargs="*", default=[], metavar="PROFILE=N",
+                   help="per-profile max_docs overrides, e.g. rag_semantic=1000")
     p.add_argument("--python", default=sys.executable, help="interpreter for subprocess runs")
     return p.parse_args()
+
+
+def _parse_overrides(items: list[str]) -> dict[str, int]:
+    """Parse ``--max-docs-for rag_semantic=1000`` pairs into a {profile: n} map."""
+    out: dict[str, int] = {}
+    for item in items:
+        name, sep, val = item.partition("=")
+        if not sep:
+            raise SystemExit(f"--max-docs-for expects PROFILE=N, got {item!r}")
+        out[name.strip()] = int(val)
+    return out
 
 
 def _run(cmd: list[str]) -> None:
@@ -87,24 +102,30 @@ def main() -> None:
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     summaries: dict[str, dict] = {}
-    built_strategies: set[str] = set()
+    overrides = _parse_overrides(args.max_docs_for)
+    disk_key: tuple[str, int | None] | None = None
 
     for profile in args.profiles:
         cfg_path = REPO / "configs" / f"{profile}.yaml"
         if not cfg_path.exists():
             print(f"!! skipping {profile}: {cfg_path} not found")
             continue
-        print(f"\n=== profile: {profile} ===")
+        max_docs = overrides.get(profile, args.max_docs)
+        print(f"\n=== profile: {profile}  (max_docs={max_docs or 'all'}) ===")
         if args.rebuild:
             strategy = QAConfig.from_yaml(cfg_path).chunking.strategy
-            # Rebuild once per distinct chunking strategy (a rebuild boundary).
-            if strategy not in built_strategies:
+            # Only one index lives on disk, so rebuild whenever the strategy OR the
+            # corpus size currently persisted differs from this profile's —
+            # order-independent, unlike an "ever built" set (which would leave later
+            # same-strategy profiles running against whichever index was built last).
+            key = (strategy, max_docs)
+            if key != disk_key:
                 build_cmd = [args.python, str(REPO / "bin" / "build_index.py"),
                              "--config", str(cfg_path)]
-                if args.max_docs:
-                    build_cmd += ["--max-docs", str(args.max_docs)]
+                if max_docs:
+                    build_cmd += ["--max-docs", str(max_docs)]
                 _run(build_cmd)
-                built_strategies.add(strategy)
+                disk_key = key
 
         out_json = out_dir / f"{profile}.json"
         eval_cmd = [args.python, str(REPO / "bin" / "run_eval.py"),

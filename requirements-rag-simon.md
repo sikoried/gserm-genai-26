@@ -358,11 +358,31 @@ Each profile must be self-contained and runnable by eval scripts.
 
 ## 9 Final acceptance checklist
 
-- [ ] Baseline behavior unchanged with baseline config.
-- [ ] Structural chunking implemented and indexed.
-- [ ] Retrieval controls active and tested.
-- [ ] Token-budgeted context assembly implemented.
-- [ ] Extractive compression implemented.
-- [ ] At least 3 advanced profiles evaluated against baseline.
-- [ ] No-network unit tests added for all new core logic.
-- [ ] Demo-ready comparison output produced.
+**Status (2026-07-01): all items met.** `SemanticChunker` (F1 "should") also
+implemented beyond the minimum scope. Verification: `tests/` 60 passing (no
+network); live eval over the 40-doc subset (25 QA pairs) across baseline + 6
+advanced profiles, 0 errors.
+
+- [x] Baseline behavior unchanged with baseline config.
+      — `configs/rag.yaml` locked as control; `RagQA._is_baseline_query()` routes
+      to the byte-identical legacy path; back-compat regression tests; eval 25/25.
+- [x] Structural chunking implemented and indexed.
+      — `StructuralChunker` (token-budget, paragraph/sentence-aware); `build_index`
+      records strategy + params in `meta.json`.
+- [x] Retrieval controls active and tested.
+      — `fetch_k` → rerank → MMR → `min_similarity` → `top_k` in `RagQA._rank`;
+      MMR/rerank/threshold unit tests.
+- [x] Token-budgeted context assembly implemented.
+      — `context.assemble_context` (never exceeds budget); tiny-budget test.
+- [x] Extractive compression implemented.
+      — `context.compress_extractive` (query-relevant sentences, stable `[i]`
+      citations); relevant-sentence test.
+- [x] At least 3 advanced profiles evaluated against baseline.
+      — 6 evaluated (`rag_structural`, `rag_semantic`, `rag_multi`, `rag_rerank`,
+      `rag_compress`, `rag_full`) via `bin/compare_rag.py`.
+- [x] No-network unit tests added for all new core logic.
+      — `tests/test_rag_features.py` (chunking incl. semantic, tokens, rerank/MMR,
+      parent expansion, budgeting/compression, transforms, aux routing, config).
+- [x] Demo-ready comparison output produced.
+      — `bin/compare_rag.py` prints the verdict/token-delta/retrieval table and
+      writes `data/eval/summary.json`.

@@ -2,8 +2,8 @@
 from __future__ import annotations
 
 from .chunking import (
-    Chunk, Chunker, FixedChunker, StructuralChunker, build_chunker,
-    chunk_document, chunk_text,
+    Chunk, Chunker, FixedChunker, SemanticChunker, StructuralChunker,
+    build_chunker, chunk_document, chunk_text,
 )
 from .index import (
     INDEX_DIR, LoadedIndex, build_index, check_chunking_mismatch,
@@ -14,8 +14,8 @@ from .store import Embedder, FaissRetriever, Hit, Retriever
 from .tokens import count_tokens, truncate_to_tokens
 
 __all__ = [
-    "Chunk", "Chunker", "FixedChunker", "StructuralChunker", "build_chunker",
-    "chunk_document", "chunk_text",
+    "Chunk", "Chunker", "FixedChunker", "SemanticChunker", "StructuralChunker",
+    "build_chunker", "chunk_document", "chunk_text",
     "Embedder", "Retriever", "FaissRetriever", "Hit",
     "INDEX_DIR", "LoadedIndex", "build_index", "load_index", "load_retriever",
     "check_chunking_mismatch",

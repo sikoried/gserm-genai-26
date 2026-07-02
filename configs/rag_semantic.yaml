@@ -1,0 +1,23 @@
+# Semantic chunking (F1, "should") — topical, embedding-driven splitting.
+# Consecutive sentences are grouped while they stay on-topic (cosine >=
+# semantic_threshold) and within the token budget, so chunk boundaries fall at
+# meaning shifts rather than fixed offsets. Flat retrieval (no small->big).
+type: rag
+model: mistralai/Mistral-Medium-3.5-128B
+endpoint: https://kiz1.in.ohmportal.de/llmproxy/v1
+temperature: 0.0
+embedding_model: all-MiniLM-L6-v2
+
+chunking:
+  strategy: semantic     # rebuild boundary
+  target_tokens: 220
+  overlap_tokens: 40
+  semantic_threshold: 0.55
+
+retrieval:
+  top_k: 6
+  fetch_k: 30
+  min_similarity: 0.20
+
+context:
+  budget_tokens: 1800

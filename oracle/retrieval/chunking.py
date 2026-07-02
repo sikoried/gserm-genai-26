@@ -1,11 +1,15 @@
 """Chunk wiki-10k articles for retrieval.
 
-Two strategies behind a small interface (requirements §F1):
+Three strategies behind a small interface (requirements §F1):
 
 * ``FixedChunker`` — the original fixed char-window split (default-compatible).
 * ``StructuralChunker`` — token-budget-aware, paragraph/sentence-boundary aware,
   and it emits a small→big hierarchy (child chunks for precise retrieval, parent
   chunks for broader answer context — requirements §F2).
+* ``SemanticChunker`` — groups consecutive sentences while they stay on-topic
+  (embedding cosine ≥ ``semantic_threshold``), so a chunk boundary falls at a
+  meaning shift rather than a fixed offset. Still token-budget aware. Needs a
+  sentence ``embed_fn`` at build time; with none it degrades to structural.
 
 Every chunk carries hierarchy fields (``chunk_id``, ``parent_id``, ``level``,
 ``start_char``, ``end_char``). A chunker's ``split`` returns ``(children,
@@ -260,12 +264,154 @@ class StructuralChunker(Chunker):
         return max(k, i + 1)
 
 
-def build_chunker(chunking) -> Chunker:
-    """Construct the chunker named by a ``ChunkingConfig`` (defaults to fixed)."""
+class SemanticChunker(StructuralChunker):
+    """Topic-aware chunking: group consecutive sentences by embedding similarity.
+
+    Sentences are embedded (via the injected ``embed_fn``) and packed into a child
+    while the next sentence's cosine similarity to the running group centroid stays
+    at or above ``semantic_threshold`` *and* the token budget is not exceeded; a
+    drop below the threshold (a topic shift) or the budget starts a new child. So
+    each child is guaranteed ≤ ``target_tokens`` and breaks on meaning rather than a
+    fixed offset. ``overlap_tokens`` of trailing context is carried into the next
+    child only where the budget leaves room (so overlap never pushes a chunk over
+    budget). Output is flat (children only, no small→big parents): semantic chunks
+    are already self-contained.
+
+    The sentence-boundary, token-window, and clipping machinery is reused from
+    ``StructuralChunker``. ``embed_fn`` takes ``list[str]`` and returns L2-normalized
+    row vectors (the local ``Embedder`` does). With no ``embed_fn`` the chunker
+    degrades to ``StructuralChunker`` so an offline build/test still works.
+    """
+
+    def __init__(self, target_tokens: int = 220, overlap_tokens: int = 40,
+                 semantic_threshold: float = 0.55, embed_fn=None, tokenizer=None):
+        super().__init__(target_tokens, overlap_tokens, tokenizer)
+        self.semantic_threshold = semantic_threshold
+        self.embed_fn = embed_fn
+
+    def split(self, doc: dict) -> tuple[list[Chunk], list[Chunk]]:
+        text, doc_id, title, url = _doc_fields(doc)
+        if not text:
+            return [], []
+        if self.embed_fn is None:
+            return super().split(doc)  # no embeddings available -> structural
+        import numpy as np
+
+        units = self._semantic_units(text)  # each already fits the token budget
+        if not units:
+            return [], []
+        vecs = np.asarray(self.embed_fn([text[s:e] for s, e in units]), dtype="float32")
+        groups = self._group_units(text, units, vecs)
+        spans = self._child_spans(text, units, groups)
+        children = [
+            self._make_child(text, doc_id, title, url, ci, s, e)
+            for ci, (s, e) in enumerate(spans)
+        ]
+        return children, []
+
+    def _make_child(self, text, doc_id, title, url, ci, s, e) -> Chunk:
+        c_text, cs, ce = self._clip(text, s, e)
+        return Chunk(text=c_text, doc_id=doc_id, title=title, url=url,
+                     chunk_id=f"{doc_id}#c{ci}", parent_id=None, level=0,
+                     start_char=cs, end_char=ce)
+
+    def _doc_sentence_spans(self, text: str) -> list[tuple[int, int]]:
+        """Sentence (start, end) offsets across the whole document, paragraph by
+        paragraph (so the sentence regex never spans a newline)."""
+        spans: list[tuple[int, int]] = []
+        for m in _PARAGRAPH_RE.finditer(text):
+            para, p0 = m.group(), m.start()
+            if not para.strip():
+                continue
+            spans.extend((p0 + s, p0 + e) for s, e in _sentence_spans(para))
+        return spans
+
+    def _semantic_units(self, text: str) -> list[tuple[int, int]]:
+        """Sentence spans, with any over-budget sentence pre-windowed so every unit
+        fits ``target_tokens`` (the grouping below can then never overflow)."""
+        units: list[tuple[int, int]] = []
+        for s, e in self._doc_sentence_spans(text):
+            if self._ntoks(text[s:e]) <= self.target_tokens:
+                units.append((s, e))
+            else:
+                units.extend(self._token_windows(text, s, e))
+        return units
+
+    def _group_units(self, text, units, vecs) -> list[tuple[list[int], bool]]:
+        """Greedily group unit indices: extend the current group while the next unit
+        is on-topic and within budget, else start a new group. No overlap here, so
+        each group's tokens are ≤ ``target_tokens`` by construction.
+
+        Returns ``(indices, continues_topic)`` per group, where ``continues_topic``
+        is True only when the group began because the *budget* (not a topic shift)
+        forced a split — so overlap is added within a topic, never across one.
+        """
+        import numpy as np
+
+        groups: list[tuple[list[int], bool]] = []
+        cur: list[int] = []
+        cur_tok = 0
+        cur_sum = None
+        cur_cont = False  # the first group never continues a prior topic
+        for i, (s, e) in enumerate(units):
+            utok = self._ntoks(text[s:e])
+            if cur:
+                centroid = cur_sum / max(float(np.linalg.norm(cur_sum)), 1e-12)
+                sim = float(np.dot(vecs[i], centroid))
+                budget_break = cur_tok + utok > self.target_tokens
+                topic_break = sim < self.semantic_threshold
+                if budget_break or topic_break:
+                    groups.append((cur, cur_cont))
+                    cur_cont = budget_break and not topic_break
+                    cur, cur_tok, cur_sum = [], 0, None
+            cur.append(i)
+            cur_tok += utok
+            cur_sum = vecs[i].copy() if cur_sum is None else cur_sum + vecs[i]
+        if cur:
+            groups.append((cur, cur_cont))
+        return groups
+
+    def _child_spans(self, text, units, groups) -> list[tuple[int, int]]:
+        """Char spans for each group, prepending ≤``overlap_tokens`` of the previous
+        group's tail when this group continues the same topic and the budget leaves
+        room (overlap never crosses a topic break, never exceeds budget)."""
+        out: list[tuple[int, int]] = []
+        for gi, (idxs, continues_topic) in enumerate(groups):
+            start = units[idxs[0]][0]
+            end = units[idxs[-1]][1]
+            if gi > 0 and continues_topic and self.overlap_tokens > 0:
+                room = self.target_tokens - sum(
+                    self._ntoks(text[units[k][0]:units[k][1]]) for k in idxs)
+                budget = min(self.overlap_tokens, room)
+                tok = 0
+                for k in reversed(groups[gi - 1][0]):
+                    us, ue = units[k]
+                    ut = self._ntoks(text[us:ue])
+                    if tok + ut > budget:
+                        break
+                    tok += ut
+                    start = us
+            out.append((start, end))
+        return out
+
+
+def build_chunker(chunking, embed_fn=None) -> Chunker:
+    """Construct the chunker named by a ``ChunkingConfig`` (defaults to fixed).
+
+    ``embed_fn`` (``list[str] -> normalized vectors``) is used by the ``semantic``
+    strategy to embed sentences at build time; pass the index embedder's ``encode``.
+    """
     strategy = getattr(chunking, "strategy", "fixed")
-    if strategy in ("structural", "semantic", "llm"):
-        # semantic/llm fall back to structural's boundary logic for the no-network
-        # path; their extra behavior is layered on at index build time when enabled.
+    if strategy == "semantic":
+        return SemanticChunker(
+            target_tokens=chunking.target_tokens,
+            overlap_tokens=chunking.overlap_tokens,
+            semantic_threshold=chunking.semantic_threshold,
+            embed_fn=embed_fn,
+        )
+    if strategy in ("structural", "llm"):
+        # `llm` chunking is not implemented; fall back to structural's boundary
+        # logic (its extra behavior would be layered on at build time when enabled).
         return StructuralChunker(
             target_tokens=chunking.target_tokens,
             overlap_tokens=chunking.overlap_tokens,
