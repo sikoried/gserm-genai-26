@@ -116,6 +116,19 @@ def test_build_chunker_dispatch():
     assert isinstance(chunker, SemanticChunker)
 
 
+def test_build_chunker_llm_warns_and_falls_back_to_structural():
+    llm = QAConfig(type="rag", chunking={"strategy": "llm"}).chunking
+    with pytest.warns(RuntimeWarning, match="not implemented"):
+        chunker = build_chunker(llm)
+    assert isinstance(chunker, StructuralChunker)
+
+
+def test_llm_compression_fallback_warning():
+    assert "not implemented" in ctxmod.compression_fallback_warning("llm")
+    assert ctxmod.compression_fallback_warning("extractive") is None
+    assert ctxmod.compression_fallback_warning("off") is None
+
+
 # ---------------------------------------------------------------------------
 # F1 — semantic chunking (topical split with a fake embedder, offline)
 # ---------------------------------------------------------------------------

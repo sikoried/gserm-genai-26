@@ -21,6 +21,7 @@ fixed-window behavior and imports.
 from __future__ import annotations
 
 import re
+import warnings
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
@@ -410,8 +411,11 @@ def build_chunker(chunking, embed_fn=None) -> Chunker:
             embed_fn=embed_fn,
         )
     if strategy in ("structural", "llm"):
-        # `llm` chunking is not implemented; fall back to structural's boundary
-        # logic (its extra behavior would be layered on at build time when enabled).
+        if strategy == "llm":
+            warnings.warn(
+                "chunking.strategy='llm' is not implemented; falling back to "
+                "'structural'. Use 'structural' or 'semantic' explicitly.",
+                RuntimeWarning, stacklevel=2)
         return StructuralChunker(
             target_tokens=chunking.target_tokens,
             overlap_tokens=chunking.overlap_tokens,

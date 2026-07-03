@@ -92,6 +92,15 @@ def render_context(blocks: list[ContextBlock]) -> str:
     return "\n".join(f"[{i}] {b.title}\n{b.text}\n" for i, b in enumerate(blocks, 1))
 
 
+def compression_fallback_warning(compression: str) -> str | None:
+    """Warning text when a gated, unimplemented compression mode is configured,
+    else ``None`` (same pattern as ``check_chunking_mismatch``)."""
+    if compression == "llm":
+        return ("context.compression='llm' is not implemented; running without "
+                "compression. Use 'extractive' or 'off'.")
+    return None
+
+
 def blocks_from_hits(hits) -> list[ContextBlock]:
     return [ContextBlock(title=h.title, text=h.text, url=h.url, score=h.score)
             for h in hits]

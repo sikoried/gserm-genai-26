@@ -22,7 +22,8 @@ from jinja2 import Environment, FileSystemLoader
 
 from .base import Answer, QASystem
 from .context import (
-    assemble_context, blocks_from_hits, compress_blocks, render_context,
+    assemble_context, blocks_from_hits, compress_blocks,
+    compression_fallback_warning, render_context,
 )
 from .query import make_generator, merge_candidates, transform_queries
 from ..config import QAConfig
@@ -74,11 +75,13 @@ class RagQA(QASystem):
             RagQA._embedder = Embedder(config.embedding_model)
         self.index = RagQA._index
         self.retriever = self.index.retriever
-        # Warn (don't fail) when the cache was built with different chunking (§3.2).
-        warning = check_chunking_mismatch(config, self.index.meta)
-        if warning:
-            import warnings
-            warnings.warn(warning, RuntimeWarning, stacklevel=2)
+        # Warn (don't fail) when the cache was built with different chunking (§3.2),
+        # or when a gated-but-unimplemented option would silently do nothing (§7).
+        for warning in (check_chunking_mismatch(config, self.index.meta),
+                        compression_fallback_warning(self.ctx.compression)):
+            if warning:
+                import warnings
+                warnings.warn(warning, RuntimeWarning, stacklevel=2)
         # Lazy: built only when their stage is enabled.
         self._reranker = (
             CrossEncoderReranker(self.r.rerank_model)
