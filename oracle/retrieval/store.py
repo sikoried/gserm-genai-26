@@ -11,11 +11,15 @@ from .chunking import Chunk
 
 @dataclass
 class Hit:
-    """A retrieved chunk plus its similarity score."""
+    """A retrieved chunk plus its similarity score and hierarchy handles."""
     text: str
     title: str
     url: str
     score: float
+    chunk_id: str = ""
+    parent_id: str | None = None
+    doc_id: str = ""
+    idx: int = -1  # row index into the index matrix (for MMR vector lookup)
 
 
 def _pick_device() -> str:
@@ -64,8 +68,9 @@ class FaissRetriever(Retriever):
         if len(chunks) != embeddings.shape[0]:
             raise ValueError("embeddings and chunks length mismatch")
         self.chunks = chunks
-        self.index = faiss.IndexFlatIP(embeddings.shape[1])
-        self.index.add(np.ascontiguousarray(embeddings, dtype="float32"))
+        self.embeddings = np.ascontiguousarray(embeddings, dtype="float32")
+        self.index = faiss.IndexFlatIP(self.embeddings.shape[1])
+        self.index.add(self.embeddings)
 
     def search(self, query_embedding: np.ndarray, k: int) -> list[Hit]:
         q = np.asarray(query_embedding, dtype="float32").reshape(1, -1)
@@ -75,8 +80,14 @@ class FaissRetriever(Retriever):
             if idx < 0:
                 continue
             c = self.chunks[idx]
-            hits.append(Hit(text=c.text, title=c.title, url=c.url, score=float(score)))
+            hits.append(Hit(text=c.text, title=c.title, url=c.url, score=float(score),
+                            chunk_id=c.chunk_id, parent_id=c.parent_id,
+                            doc_id=c.doc_id, idx=int(idx)))
         return hits
+
+    def vectors(self, idxs: list[int]) -> np.ndarray:
+        """Return the (normalized) embedding rows for the given index positions."""
+        return self.embeddings[np.asarray(idxs, dtype=int)]
 
     def __len__(self) -> int:
         return len(self.chunks)

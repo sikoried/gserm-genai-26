@@ -1,0 +1,24 @@
+# Context budgeting + extractive compression (showcases F4).
+# Each retrieved passage is shrunk to its most query-relevant sentences and the
+# whole context is held under a tight token budget — fewer prompt tokens, less
+# distracting text, citations stay valid.
+type: rag
+model: mistralai/Mistral-Medium-3.5-128B
+endpoint: https://kiz1.in.ohmportal.de/llmproxy/v1
+temperature: 0.0
+embedding_model: all-MiniLM-L6-v2
+
+chunking:
+  strategy: structural
+  target_tokens: 220
+  overlap_tokens: 40
+
+retrieval:
+  top_k: 8
+  fetch_k: 30
+  min_similarity: 0.20
+
+context:
+  budget_tokens: 900
+  compression: extractive
+  keep_sentences: 2

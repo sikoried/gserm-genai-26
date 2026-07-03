@@ -25,6 +25,9 @@ class ItemResult:
     completion_tokens: int = 0
     total_tokens: int = 0
     elapsed_seconds: float = 0.0
+    # Retrieval diagnostics (populated when the QA system exposes `.sources()`)
+    num_sources: int = 0
+    top_score: float = 0.0
 
 
 def load_pairs(path: str | Path) -> list[dict]:
@@ -45,6 +48,7 @@ def run_eval(config: QAConfig, pairs: list[dict], *, judge_model: str = JUDGE_MO
             answer_obj = qa.answer(question)
             answer_text = answer_obj.content
             metrics = answer_obj.metrics
+            sources = qa.sources() if hasattr(qa, "sources") else []
         except Exception as exc:
             results.append(ItemResult(rid, question, reference,
                                       f"<answer error: {exc}>", "error",
@@ -64,6 +68,8 @@ def run_eval(config: QAConfig, pairs: list[dict], *, judge_model: str = JUDGE_MO
             completion_tokens=metrics.completion_tokens,
             total_tokens=metrics.total_tokens,
             elapsed_seconds=metrics.elapsed_seconds,
+            num_sources=len(sources),
+            top_score=round(max((s.get("score", 0.0) for s in sources), default=0.0), 4),
         ))
         if progress:
             progress(results[-1])

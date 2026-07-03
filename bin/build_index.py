@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """Build and cache the wiki-10k RAG index (chunks + local embeddings).
 
-The index is cached under ``data/rag-index/`` and loaded at query time by the
-`rag` QA system. Re-run this to rebuild (e.g. after changing chunking or model).
+The chunking strategy and embedding model come from a QA-system config (so the
+index matches the profile it will serve). The cache lands under ``data/rag-index/``
+and is loaded at query time by the `rag` system. Re-run this after changing any
+``chunking.*`` setting (it is a rebuild boundary — see requirements §3.1).
 
 Usage:
-    .venv/bin/python bin/build_index.py                 # all 10k articles
-    .venv/bin/python bin/build_index.py --max-docs 500  # a subset (faster)
+    .venv/Scripts/python bin/build_index.py --config configs/rag.yaml
+    .venv/Scripts/python bin/build_index.py --config configs/rag_structural.yaml --max-docs 500
 """
 from __future__ import annotations
 
@@ -17,21 +19,31 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from oracle.config import QAConfig  # noqa: E402
 from oracle.retrieval import INDEX_DIR, build_index  # noqa: E402
 
 
 def main() -> None:
     p = argparse.ArgumentParser(description="Build the wiki-10k RAG index.")
+    p.add_argument("--config", default=None,
+                   help="QA config YAML (uses its chunking + embedding_model)")
     p.add_argument("--max-docs", type=int, default=None,
                    help="limit number of articles (default: all 10k)")
-    p.add_argument("--chunk-size", type=int, default=800, help="chars per chunk")
-    p.add_argument("--overlap", type=int, default=150, help="char overlap between chunks")
-    p.add_argument("--model", default="all-MiniLM-L6-v2", help="sentence-transformers model")
+    p.add_argument("--strategy", default=None,
+                   help="override chunking strategy (fixed | structural | semantic | llm)")
+    p.add_argument("--model", default=None, help="override sentence-transformers model")
     args = p.parse_args()
 
+    config = QAConfig.from_yaml(args.config) if args.config else QAConfig(type="rag")
+    if args.strategy:
+        config.chunking.strategy = args.strategy
+    if args.model:
+        config.embedding_model = args.model
+
+    print(f"strategy  : {config.chunking.strategy}")
+    print(f"embedder  : {config.embedding_model}")
     t0 = time.perf_counter()
-    n = build_index(max_docs=args.max_docs, chunk_size=args.chunk_size,
-                    overlap=args.overlap, model_name=args.model)
+    n = build_index(config, max_docs=args.max_docs)
     print(f"Done: {n:,} chunks indexed at {INDEX_DIR} in {time.perf_counter() - t0:.1f}s")
 
 

@@ -1,0 +1,23 @@
+# Structural chunking + small→big retrieval (showcases F1 + F2).
+# Token-budget, paragraph/sentence-aware chunks for precise retrieval; answers
+# are then expanded to the parent section for broader context.
+type: rag
+model: mistralai/Mistral-Medium-3.5-128B
+endpoint: https://kiz1.in.ohmportal.de/llmproxy/v1
+temperature: 0.0
+embedding_model: all-MiniLM-L6-v2
+
+chunking:
+  strategy: structural   # rebuild boundary
+  target_tokens: 220
+  overlap_tokens: 40
+
+retrieval:
+  top_k: 6
+  fetch_k: 30
+  min_similarity: 0.20
+  multi_resolution: small_to_big
+  parent_level: section
+
+context:
+  budget_tokens: 1800

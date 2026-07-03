@@ -390,3 +390,19 @@
 .modal-actions button.primary:hover {
   background: var(--hsg-green-light);
 }
+
+/* RAG source panel */
+.message-sources {
+  margin: 4px 0 0;
+  padding-left: 18px;
+  font-size: 0.85em;
+}
+.message-sources li {
+  margin: 2px 0;
+}
+.source-score {
+  display: inline-block;
+  min-width: 2.6em;
+  color: var(--hsg-green, #007a3d);
+  font-variant-numeric: tabular-nums;
+}

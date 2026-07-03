@@ -83,6 +83,13 @@ class ChatRequest(BaseModel):
     mode: str = "World"  # World | RAG | Agentic RAG
     model: str = QAConfig().model
     temperature: float = 0.0
+    rag_profile: str | None = None  # configs/<profile>.yaml; overrides mode when set
+
+
+class SourceInfo(BaseModel):
+    title: str
+    score: float
+    url: str = ""
 
 
 class ChatResponse(BaseModel):
@@ -90,10 +97,23 @@ class ChatResponse(BaseModel):
     mode: str
     model: str
     reasoning: str | None = None  # agent reasoning trace (agentic RAG)
+    profile: str | None = None  # the rag profile used, if any
+    sources: list[SourceInfo] = []  # passages used (RAG profiles)
 
 
 # A chat "mode" maps onto a QA-system type.
 MODE_TO_TYPE = {"World": "world", "RAG": "rag", "Agentic RAG": "a-rag"}
+
+_CONFIGS_DIR = Path(__file__).resolve().parent.parent / "configs"
+
+
+def _load_profile_config(profile: str, model: str, temperature: float) -> QAConfig:
+    """Load ``configs/<profile>.yaml`` and override only runtime knobs (§3.3)."""
+    path = _CONFIGS_DIR / f"{profile}.yaml"
+    if not path.exists():
+        raise HTTPException(status_code=400, detail=f"Unknown rag_profile: {profile!r}")
+    cfg = QAConfig.from_yaml(path)
+    return cfg.model_copy(update={"model": model or cfg.model, "temperature": temperature})
 
 
 # ---------------------------------------------------------------------------
@@ -164,16 +184,31 @@ def post_compare(req: CompareRequest) -> list[AnswerResponse]:
     return results
 
 
+@app.get("/api/rag-profiles", response_model=list[str])
+def get_rag_profiles() -> list[str]:
+    """Names of selectable RAG profiles (``configs/rag*.yaml``)."""
+    if not _CONFIGS_DIR.exists():
+        return []
+    return sorted(p.stem for p in _CONFIGS_DIR.glob("rag*.yaml"))
+
+
 @app.post("/api/chat", response_model=ChatResponse)
 def post_chat(req: ChatRequest) -> ChatResponse:
-    qa_type = MODE_TO_TYPE.get(req.mode)
-    if qa_type is None:
-        raise HTTPException(status_code=400, detail=f"Unknown mode: {req.mode!r}")
-    config = QAConfig(type=qa_type, model=req.model, endpoint=DEFAULT_ENDPOINT,
-                      temperature=req.temperature)
+    if req.rag_profile:
+        # A profile self-describes its QA type + advanced knobs; the request only
+        # overrides runtime knobs (model, temperature).
+        config = _load_profile_config(req.rag_profile, req.model, req.temperature)
+        mode = req.mode if req.mode in MODE_TO_TYPE else "RAG"
+    else:
+        qa_type = MODE_TO_TYPE.get(req.mode)
+        if qa_type is None:
+            raise HTTPException(status_code=400, detail=f"Unknown mode: {req.mode!r}")
+        config = QAConfig(type=qa_type, model=req.model, endpoint=DEFAULT_ENDPOINT,
+                          temperature=req.temperature)
+        mode = req.mode
     try:
         qa = build_qa_system(config)
-    except NotImplementedError as exc:  # RAG / a-rag not implemented yet
+    except NotImplementedError as exc:
         raise HTTPException(status_code=501, detail=str(exc))
     try:
         if hasattr(qa, "answer_chat"):
@@ -185,8 +220,10 @@ def post_chat(req: ChatRequest) -> ChatResponse:
             result = qa.answer(req.question)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
-    return ChatResponse(answer=result.content, mode=req.mode, model=req.model,
-                        reasoning=result.reasoning)
+    sources = qa.sources() if hasattr(qa, "sources") else []
+    return ChatResponse(answer=result.content, mode=mode, model=req.model,
+                        reasoning=result.reasoning, profile=req.rag_profile,
+                        sources=[SourceInfo(**s) for s in sources])
 
 
 # ---------------------------------------------------------------------------

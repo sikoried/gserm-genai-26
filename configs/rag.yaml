@@ -1,0 +1,16 @@
+# Baseline RAG (CONTROL) — reproduces the original `rag` behavior exactly:
+# fixed char-window chunking, a direct top-k cosine search, no rerank /
+# compression / transforms. Locked as the regression control (requirements §8).
+type: rag
+model: mistralai/Mistral-Medium-3.5-128B
+endpoint: https://kiz1.in.ohmportal.de/llmproxy/v1
+temperature: 0.0
+embedding_model: all-MiniLM-L6-v2
+
+chunking:
+  strategy: fixed       # rebuild boundary: char-window split (size/overlap below)
+  size: 800
+  overlap: 150
+
+retrieval:
+  top_k: 10             # everything else stays at the baseline default (off)
