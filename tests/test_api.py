@@ -109,6 +109,81 @@ def test_chat_unknown_mode_is_400():
     assert resp.status_code == 400
 
 
+def test_chat_threads_online_and_multihop_flags_into_config(monkeypatch):
+    # Regression: the GUI could not enable online tools / multi-hop because post_chat
+    # dropped the flags — the router never saw google_search / youtube.
+    from oracle.llm import UsageMetrics
+    from oracle.qa.base import Answer
+
+    seen = {}
+
+    class _FakeQA:
+        def __init__(self, cfg):
+            seen["online"] = cfg.enable_online_tools
+            seen["multi_hop"] = cfg.multi_hop
+            seen["planner"] = cfg.planner_model
+            seen["max_hops"] = cfg.max_hops
+            seen["max_steps"] = cfg.max_steps
+            seen["max_depth"] = cfg.max_depth
+            seen["verify"] = cfg.verify
+
+        def answer_chat(self, conversation):
+            return Answer(content="ok", metrics=UsageMetrics(1, 1, 2, 0.1))
+
+    monkeypatch.setattr(api, "build_qa_system", lambda cfg: _FakeQA(cfg))
+    # Explicit values thread through.
+    client.post("/api/chat", json={
+        "question": "q", "mode": "Agentic RAG",
+        "enable_online_tools": False, "multi_hop": False, "planner_model": "answer",
+        "max_hops": 5, "max_steps": 9, "max_depth": 2, "verify": True,
+    })
+    assert seen == {"online": False, "multi_hop": False, "planner": "answer",
+                    "max_hops": 5, "max_steps": 9, "max_depth": 2, "verify": True}
+    # Omitting them uses the defaults.
+    client.post("/api/chat", json={"question": "q", "mode": "Agentic RAG"})
+    assert seen == {"online": True, "multi_hop": True, "planner": "router",
+                    "max_hops": 3, "max_steps": 6, "max_depth": 1, "verify": True}
+
+
+def test_chat_agentic_carries_structured_trace(monkeypatch):
+    # The a-rag path attaches an AgentTrace; the API must surface it as `trace` + `usage`.
+    from oracle.llm import UsageMetrics
+    from oracle.qa.base import Answer
+    from oracle.agent.trace import AgentTrace, TraceStep
+
+    trace = AgentTrace(stop_reason="done", elapsed_seconds=0.3, steps=[
+        TraceStep(0, "router", "calculator", {"expression": "2+2"}, "call calculator",
+                  prompt_tokens=5, completion_tokens=2, model_id="qwen/router"),
+        TraceStep(1, "tool", "calculator", {"expression": "2+2"}, "4",
+                  prompt_tokens=0, completion_tokens=0, elapsed_seconds=0.001),
+        TraceStep(2, "synthesis", None, None, "The answer is 4.",
+                  prompt_tokens=11, completion_tokens=4, elapsed_seconds=0.2,
+                  model_id="big/synth"),
+    ])
+
+    class _FakeARag:
+        def answer_chat(self, conversation):
+            return Answer(content="The answer is 4.",
+                          metrics=UsageMetrics(16, 6, 22, 0.3),
+                          reasoning=trace.as_text(), trace=trace)
+
+    monkeypatch.setattr(api, "build_qa_system", lambda cfg: _FakeARag())
+    resp = client.post("/api/chat", json={"question": "2+2?", "mode": "Agentic RAG"})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["answer"] == "The answer is 4."
+    # structured trace present, with the tool step visible
+    steps = body["trace"]["steps"]
+    assert [s["kind"] for s in steps] == ["router", "tool", "synthesis"]
+    assert steps[1]["tool"] == "calculator" and steps[1]["total_tokens"] == 0
+    # per-question token breakdown (input/output/reasoning + attribution + models)
+    assert body["usage"]["total_tokens"] == 22
+    assert body["usage"]["input_tokens"] == 16 and body["usage"]["output_tokens"] == 6
+    assert body["usage"]["tools"]["total"] == 0
+    assert body["usage"]["models"] == {"router": "qwen/router", "synthesis": "big/synth"}
+    assert body["trace"]["stop_reason"] == "done"
+
+
 def test_chat_conversation_aware_qa_gets_history_then_question(monkeypatch):
     from oracle.llm import UsageMetrics
     from oracle.qa.base import Answer

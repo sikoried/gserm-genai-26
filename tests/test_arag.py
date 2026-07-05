@@ -6,7 +6,18 @@ smolagents sends it with the content as a *list of parts* (``[{"type":"text","te
 and the role as a ``MessageRole`` enum, which the original sanitizer missed — so the
 empty assistant message reached Mistral, which rejects it (HTTP 400).
 """
-from oracle.qa.arag import _build_trace, _message_text, _sanitize_messages
+from oracle.qa.arag import (
+    _build_trace, _message_text, _sanitize_messages, references_video,
+)
+
+
+def test_references_video_detection():
+    assert references_video("In Mark Rober's squirrel maze video, how many obstacles?")
+    assert references_video("What happens in the MrBeast YouTube episode?")
+    assert references_video("watch the trailer and tell me the release date")
+    # Not video questions
+    assert not references_video("What is the capital of France?")
+    assert not references_video("Who directed Titanic?")
 
 
 def test_message_text_flattens_string_and_parts():

@@ -1,10 +1,12 @@
-"""Query-rewrite tool: expand a short query so its embedding is more characteristic."""
+"""Query-rewrite tool: expand a short query so its embedding is more characteristic.
+
+This tool calls the LLM, so it records its token usage into the runtime tally
+(``runtime.add_tool_tokens``) for the orchestrator to attribute to this step.
+"""
 from __future__ import annotations
 
-from smolagents import tool
-
 from . import runtime
-from ..llm import chat
+from ..llm import chat_with_metrics
 
 _SYSTEM = (
     "Rewrite the user's search query into a single, more descriptive sentence that "
@@ -12,7 +14,6 @@ _SYSTEM = (
 )
 
 
-@tool
 def query_rewrite(query: str) -> str:
     """Rewrite a short query into a fuller, more descriptive search sentence.
 
@@ -23,8 +24,11 @@ def query_rewrite(query: str) -> str:
         query: The short query to expand.
     """
     client, model = runtime.llm()
-    return chat(
+    content, metrics = chat_with_metrics(
         client, model,
         [{"role": "system", "content": _SYSTEM}, {"role": "user", "content": query}],
         temperature=0.0,
-    ).strip()
+    )
+    runtime.add_tool_tokens(metrics.prompt_tokens, metrics.completion_tokens,
+                            metrics.reasoning_tokens, model_id=model)
+    return content.strip()

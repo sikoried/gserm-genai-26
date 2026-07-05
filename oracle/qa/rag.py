@@ -29,8 +29,8 @@ _env = Environment(
 _context_template = _env.get_template("rag_prompt.j2")
 
 
-def _first_user_message(history: list[dict]) -> str:
-    return next((m.get("content", "") for m in history if m.get("role") == "user"), "")
+def _last_user_message(history: list[dict]) -> str:
+    return next((m.get("content", "") for m in reversed(history) if m.get("role") == "user"), "")
 
 
 class RagQA(QASystem):
@@ -71,5 +71,5 @@ class RagQA(QASystem):
         )
 
     def answer_chat(self, history: list[dict]) -> Answer:
-        """Multi-turn: retrieve only on the first user message; later turns extend context."""
-        return self._complete([self._system_message(_first_user_message(history)), *history])
+        """Retrieve for the current (latest) user question, then answer with context."""
+        return self._complete([self._system_message(_last_user_message(history)), *history])

@@ -19,6 +19,7 @@ from pydantic import BaseModel
 from .config import DEFAULT_ENDPOINT, QAConfig
 from .models import MODELS
 from .qa import build_qa_system
+from . import quiz as quizmod
 
 app = FastAPI(title="Oracle API")
 
@@ -83,17 +84,70 @@ class ChatRequest(BaseModel):
     mode: str = "World"  # World | RAG | Agentic RAG
     model: str = QAConfig().model
     temperature: float = 0.0
+    enable_online_tools: bool = True  # a-rag: allow google_search + youtube (default on)
+    multi_hop: bool = True             # a-rag: decompose into sub-questions (default on)
+    planner_model: str = "router"      # a-rag: "router" (small local) | "answer" (big model)
+    max_hops: int = 3                  # a-rag: max sub-questions per planning step
+    max_steps: int = 6                 # a-rag: max tool calls before forced synthesis
+    max_depth: int = 1                 # a-rag: recursive planning levels (1 = flat)
+    verify: bool = True                # a-rag: bounded verification/backtracking hop (default on)
 
 
 class ChatResponse(BaseModel):
     answer: str
     mode: str
     model: str
-    reasoning: str | None = None  # agent reasoning trace (agentic RAG)
+    reasoning: str | None = None  # human-readable trace (agentic RAG)
+    trace: dict | None = None     # structured per-step trace + token totals (a-rag)
+    usage: dict | None = None      # per-question token breakdown (router/tools/synthesis)
 
 
 # A chat "mode" maps onto a QA-system type.
 MODE_TO_TYPE = {"World": "world", "RAG": "rag", "Agentic RAG": "a-rag"}
+
+
+class PlayerSettings(BaseModel):
+    """The QA-mode + agentic-RAG settings shared by chat and the quiz player."""
+    mode: str = "Agentic RAG"
+    model: str = QAConfig().model
+    temperature: float = 0.0
+    enable_online_tools: bool = True
+    multi_hop: bool = True
+    planner_model: str = "router"
+    max_hops: int = 3
+    max_steps: int = 6
+    max_depth: int = 1
+    verify: bool = True
+
+
+def _player_config(p: "PlayerSettings | ChatRequest") -> QAConfig:
+    """Build a QAConfig for a player from its mode + agentic-RAG settings."""
+    qa_type = MODE_TO_TYPE.get(p.mode)
+    if qa_type is None:
+        raise HTTPException(status_code=400, detail=f"Unknown mode: {p.mode!r}")
+    return QAConfig(type=qa_type, model=p.model, endpoint=DEFAULT_ENDPOINT,
+                    temperature=p.temperature,
+                    enable_online_tools=p.enable_online_tools, multi_hop=p.multi_hop,
+                    planner_model=p.planner_model, max_hops=p.max_hops,
+                    max_steps=p.max_steps, max_depth=p.max_depth, verify=p.verify)
+
+
+def _answer_payload(result) -> dict:
+    """Serialize an Answer's metrics + trace for the client (shared by chat/quiz)."""
+    trace = result.trace.to_dict() if result.trace is not None else None
+    usage = {**trace["totals"], "models": trace.get("models", {})} if trace else None
+    m = result.metrics
+    return {
+        "answer": result.content, "reasoning": result.reasoning,
+        "trace": trace, "usage": usage,
+        "metrics": {
+            "input_tokens": m.prompt_tokens,
+            "output_tokens": max(m.completion_tokens - m.reasoning_tokens, 0),
+            "reasoning_tokens": m.reasoning_tokens,
+            "total_tokens": m.total_tokens,
+            "elapsed_seconds": m.elapsed_seconds,
+        },
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -170,7 +224,11 @@ def post_chat(req: ChatRequest) -> ChatResponse:
     if qa_type is None:
         raise HTTPException(status_code=400, detail=f"Unknown mode: {req.mode!r}")
     config = QAConfig(type=qa_type, model=req.model, endpoint=DEFAULT_ENDPOINT,
-                      temperature=req.temperature)
+                      temperature=req.temperature,
+                      enable_online_tools=req.enable_online_tools,
+                      multi_hop=req.multi_hop, planner_model=req.planner_model,
+                      max_hops=req.max_hops, max_steps=req.max_steps,
+                      max_depth=req.max_depth, verify=req.verify)
     try:
         qa = build_qa_system(config)
     except NotImplementedError as exc:  # RAG / a-rag not implemented yet
@@ -185,8 +243,94 @@ def post_chat(req: ChatRequest) -> ChatResponse:
             result = qa.answer(req.question)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
+    trace = result.trace.to_dict() if result.trace is not None else None
+    usage = None
+    if trace:
+        usage = {**trace["totals"], "models": trace.get("models", {})}
     return ChatResponse(answer=result.content, mode=req.mode, model=req.model,
-                        reasoning=result.reasoning)
+                        reasoning=result.reasoning, trace=trace, usage=usage)
+
+
+# ---------------------------------------------------------------------------
+# Quiz: a host (dataset + judge) quizzes a player (a QA mode). See quiz.md.
+# ---------------------------------------------------------------------------
+
+class QuizStartRequest(BaseModel):
+    dataset: str = quizmod.DEFAULT_DATASET
+    count: int | None = None  # None or >= size → all questions; else a random sample
+    seed: int | None = None
+
+
+class QuizStartResponse(BaseModel):
+    dataset: str
+    total: int          # size of the dataset
+    indices: list[int]  # the (randomly sampled) question indices to play
+
+
+class QuizAnswerRequest(PlayerSettings):
+    dataset: str = quizmod.DEFAULT_DATASET
+    index: int
+    host_model: str = quizmod.DEFAULT_HOST_MODEL
+
+
+class QuizAnswerResponse(BaseModel):
+    index: int
+    question: str
+    reference: str
+    answer: str
+    verdict: str              # "right" | "wrong" | "error"
+    right: bool
+    judge_reasoning: str
+    reasoning: str | None = None
+    trace: dict | None = None
+    usage: dict | None = None
+    metrics: dict
+
+
+@app.get("/api/quiz/datasets")
+def get_quiz_datasets() -> list[dict]:
+    return quizmod.list_datasets()
+
+
+@app.post("/api/quiz/start", response_model=QuizStartResponse)
+def post_quiz_start(req: QuizStartRequest) -> QuizStartResponse:
+    try:
+        ds = quizmod.get_dataset(req.dataset)  # downloads + caches on first use
+        indices = ds.sample_indices(req.count, seed=req.seed)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Could not load dataset: {exc}")
+    return QuizStartResponse(dataset=req.dataset, total=len(ds), indices=indices)
+
+
+@app.post("/api/quiz/answer", response_model=QuizAnswerResponse)
+def post_quiz_answer(req: QuizAnswerRequest) -> QuizAnswerResponse:
+    try:
+        ds = quizmod.get_dataset(req.dataset)
+        item = ds.item(req.index)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Could not load question: {exc}")
+
+    config = _player_config(req)  # 400 on unknown mode
+    try:
+        qa = build_qa_system(config)
+    except NotImplementedError as exc:
+        raise HTTPException(status_code=501, detail=str(exc))
+    try:
+        result = qa.answer(item.question)  # the player answers (no reference given)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Player failed: {exc}")
+
+    # The host grades the answer against the reference (its cost is not the player's).
+    verdict = quizmod.grade(item.question, item.reference_answer, result.content,
+                            endpoint=DEFAULT_ENDPOINT, model=req.host_model)
+
+    payload = _answer_payload(result)
+    return QuizAnswerResponse(
+        index=req.index, question=item.question, reference=item.reference_answer,
+        answer=payload["answer"], verdict=verdict.verdict, right=verdict.right,
+        judge_reasoning=verdict.reasoning, reasoning=payload["reasoning"],
+        trace=payload["trace"], usage=payload["usage"], metrics=payload["metrics"],
+    )
 
 
 # ---------------------------------------------------------------------------

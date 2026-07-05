@@ -10,6 +10,12 @@ sentence-transformers>=3.0
 faiss-cpu>=1.8
 jinja2>=3.1  # RAG prompt template
 smolagents>=1.20  # agentic RAG (a-rag)
+transformers>=4.44  # local tool-router model (a-rag; also pulled by sentence-transformers)
+
+# --- Online agent tools (a-rag; opt-in via enable_online_tools; cost-free, no API key) ---
+ddgs>=9.0  # DuckDuckGo web search (google_search tool)
+yt-dlp>=2024.1  # YouTube video search (youtube tool)
+youtube-transcript-api>=1.0  # YouTube transcript extraction (youtube tool)
 # chromadb>=0.5    # backlog: in-memory alternative with metadata filtering — see TODO.md
 
 # --- Backend API (FastAPI + HF OpenAI-compatible client) ---

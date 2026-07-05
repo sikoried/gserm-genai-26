@@ -4,8 +4,13 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
+from typing import TYPE_CHECKING
+
 from ..config import QAConfig
 from ..llm import UsageMetrics
+
+if TYPE_CHECKING:
+    from ..agent.trace import AgentTrace
 
 
 @dataclass
@@ -14,6 +19,7 @@ class Answer:
     content: str
     metrics: UsageMetrics
     reasoning: str | None = None  # agent reasoning trace (agentic RAG); None otherwise
+    trace: "AgentTrace | None" = None  # structured per-step trace + token totals (a-rag)
 
 
 class QASystem(ABC):

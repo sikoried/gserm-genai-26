@@ -22,6 +22,19 @@ class QAConfig(BaseModel):
     # --- RAG ---
     top_k: int = 10  # number of retrieved chunks used as context (rag)
     embedding_model: str = "all-MiniLM-L6-v2"  # local embedding model for retrieval
+    # --- Agentic RAG (a-rag) ---
+    router_model: str = "Qwen/Qwen2.5-1.5B-Instruct"  # local small LLM that routes tools
+    router_device: str | None = None  # None = auto (mps/cuda/cpu)
+    router_max_gb: float = 6.0  # memory ceiling guardrail for the router model
+    max_steps: int = 6  # hard cap on tool calls before forced synthesis
+    agent_timeout_seconds: float = 120.0  # wall-clock budget per question
+    enable_online_tools: bool = True  # web (google_search) + youtube tools; on by default
+    multi_hop: bool = True  # decompose into sub-questions and answer per hop; on by default
+    max_hops: int = 3  # max sub-questions per planning step
+    max_depth: int = 1  # recursive planning levels (1 = flat; >1 = nested sub-agents)
+    planner_model: str = "router"  # who plans hops: "router" (small local) | "answer" (big `model`)
+    verify: bool = True  # run one bounded verification/backtracking hop after answering
+    rag_first: bool = True  # always search the local index before other tools
 
     @classmethod
     def from_yaml(cls, path: str | Path) -> "QAConfig":
