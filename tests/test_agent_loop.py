@@ -6,7 +6,7 @@ and the wall clock is injected. The real per-tool token tally
 """
 import pytest
 
-from oracle.agent.loop import run_agent
+from oracle.agent.loop import run_agent, SynthesisResult
 from oracle.agent.router import Router, RouterDecision
 from oracle.tools import runtime
 
@@ -26,16 +26,19 @@ class ScriptedRouter(Router):
 
 def _call(tool, args, p=4, c=1):
     return RouterDecision(finished=False, tool=tool, arguments=args,
-                          prompt_tokens=p, completion_tokens=c)
+                          prompt_tokens=p, completion_tokens=c, model_id="router/m")
 
 
 def _finish(p=4, c=1):
-    return RouterDecision(finished=True, prompt_tokens=p, completion_tokens=c)
+    return RouterDecision(finished=True, prompt_tokens=p, completion_tokens=c,
+                          model_id="router/m")
 
 
-def _synth(text="FINAL", p=11, c=4, elapsed=0.05):
+def _synth(text="FINAL", p=11, c=4, r=0, elapsed=0.05):
     def synthesize(question, history, observations):
-        return text, p, c, elapsed
+        return SynthesisResult(text=text, prompt_tokens=p, completion_tokens=c,
+                               reasoning_tokens=r, elapsed_seconds=elapsed,
+                               model_id="big/synth")
     return synthesize
 
 
@@ -123,26 +126,31 @@ def test_tool_exception_is_captured_not_raised():
 
 # --- token accounting ---------------------------------------------------------
 
-def test_token_accounting_attributes_by_kind():
-    # One LLM-backed tool that records 7+3 tokens via the real runtime tally.
+def test_token_accounting_attributes_by_kind_and_type():
+    # One LLM-backed tool records 7 input + 3 output (1 of it reasoning) via runtime.
     def llm_tool(query=""):
-        runtime.add_tool_tokens(7, 3)
+        runtime.add_tool_tokens(7, 3, reasoning_tokens=1, model_id="tool/m")
         return "rewritten"
 
     router = ScriptedRouter([_call("rw", {"query": "x"}, p=5, c=2), _finish(p=5, c=2)])
     res = run_agent(question="q", history=[], router=router,
-                    tools_by_name={"rw": llm_tool}, synthesize=_synth(p=11, c=4),
+                    tools_by_name={"rw": llm_tool}, synthesize=_synth(p=11, c=4, r=2),
                     reset_tool_tokens=runtime.reset_tool_tokens,
-                    get_tool_tokens=runtime.get_tool_tokens)
+                    get_tool_tokens=runtime.get_tool_tokens,
+                    get_tool_model=runtime.get_tool_model)
     totals = res.trace.totals()
-    # router: two decisions × (5+2)
-    assert totals.router_prompt == 10 and totals.router_completion == 4
-    # tools: the single rewrite call
-    assert totals.tools_prompt == 7 and totals.tools_completion == 3
-    # synthesis
-    assert totals.synthesis_prompt == 11 and totals.synthesis_completion == 4
-    # grand total
-    assert totals.total_tokens == (10 + 4) + (7 + 3) + (11 + 4)
+    # router: two decisions × (5 in, 2 out, 0 reasoning)
+    assert totals.router.input == 10 and totals.router.output == 4 and totals.router.reasoning == 0
+    # tools: the single rewrite call (output = completion - reasoning = 3 - 1 = 2)
+    assert totals.tools.input == 7 and totals.tools.output == 2 and totals.tools.reasoning == 1
+    # synthesis: 11 in, completion 4 of which 2 reasoning -> output 2
+    assert totals.synthesis.input == 11 and totals.synthesis.output == 2 and totals.synthesis.reasoning == 2
+    # grand totals by type
+    assert totals.input_tokens == 10 + 7 + 11
+    assert totals.reasoning_tokens == 0 + 1 + 2
+    assert totals.total_tokens == totals.input_tokens + totals.output_tokens + totals.reasoning_tokens
+    # model names surfaced
+    assert res.trace.model_names() == {"router": "router/m", "synthesis": "big/synth"}
 
 
 def test_local_tools_report_zero_tokens():

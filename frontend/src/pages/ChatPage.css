@@ -245,6 +245,63 @@
   line-height: 1.5;
 }
 
+/* ── Loading / progress ── */
+
+.loading-elapsed {
+  font-variant-numeric: tabular-nums;
+  color: var(--hsg-gray-700);
+  font-size: 0.8rem;
+}
+
+.progress-track {
+  margin-top: 8px;
+  height: 4px;
+  width: 100%;
+  max-width: 320px;
+  background: var(--hsg-gray-200);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.progress-bar {
+  height: 100%;
+  width: 40%;
+  background: var(--hsg-green);
+  border-radius: 3px;
+  animation: progress-indeterminate 1.3s ease-in-out infinite;
+}
+
+@keyframes progress-indeterminate {
+  0% { margin-left: -40%; }
+  100% { margin-left: 100%; }
+}
+
+.loading-hint {
+  margin-top: 6px;
+  font-size: 0.72rem;
+  color: var(--hsg-gray-500, #94a3b8);
+}
+
+.modal-field-check label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.modal-field-check input[type="checkbox"] {
+  width: auto;
+  margin: 0;
+}
+
+.modal-hint {
+  display: block;
+  margin-top: 4px;
+  font-size: 0.72rem;
+  color: var(--hsg-gray-500, #94a3b8);
+}
+
 /* ── Agentic trace ── */
 
 .trace-view {
@@ -260,12 +317,30 @@
   letter-spacing: 0.06em;
 }
 
+.trace-models {
+  margin-top: 6px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 0.76rem;
+  color: var(--hsg-gray-700);
+}
+
+.trace-model {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.72rem;
+  color: var(--hsg-gray-700);
+  white-space: nowrap;
+}
+
 .trace-table {
   margin-top: 8px;
   width: 100%;
   border-collapse: collapse;
   font-size: 0.78rem;
 }
+
+.trace-kind-planner { background: #ede9fe; color: #5b21b6; }
 
 .trace-table th,
 .trace-table td {

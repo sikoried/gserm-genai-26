@@ -12,11 +12,15 @@ export default function ChatPage() {
   const [model, setModel] = useState("");
   const [mode, setMode] = useState(MODES[0]);
   const [loading, setLoading] = useState(false);
+  const [elapsed, setElapsed] = useState(0);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [temperature, setTemperature] = useState("0.0");
+  const [enableOnline, setEnableOnline] = useState(false);
+  const [multiHop, setMultiHop] = useState(false);
   const chatEndRef = useRef(null);
   const textareaRef = useRef(null);
   const nextId = useRef(2);
+  const isAgentic = mode === "Agentic RAG";
 
   const activeChat = chats.find((c) => c.id === activeChatId);
 
@@ -33,6 +37,16 @@ export default function ChatPage() {
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [activeChat?.messages]);
+
+  // Tick an elapsed-seconds counter while a request is in flight, so long
+  // agentic runs visibly progress instead of looking hung.
+  useEffect(() => {
+    if (!loading) return;
+    setElapsed(0);
+    const started = Date.now();
+    const id = setInterval(() => setElapsed((Date.now() - started) / 1000), 100);
+    return () => clearInterval(id);
+  }, [loading]);
 
   function updateChat(chatId, updater) {
     setChats((prev) => prev.map((c) => (c.id === chatId ? updater(c) : c)));
@@ -70,6 +84,8 @@ export default function ChatPage() {
           mode,
           model,
           temperature: parseFloat(temperature) || 0,
+          enable_online_tools: enableOnline,
+          multi_hop: multiHop,
         }),
       });
       if (!res.ok) {
@@ -180,7 +196,20 @@ export default function ChatPage() {
           {loading && (
             <div className="message assistant">
               <div className="message-role">Oracle</div>
-              <div className="message-content loading">Thinking...</div>
+              <div className="message-content loading">
+                {isAgentic
+                  ? "Working… routing tools, searching, and composing the answer"
+                  : "Thinking…"}{" "}
+                <span className="loading-elapsed">{elapsed.toFixed(1)}s</span>
+                <div className="progress-track">
+                  <div className="progress-bar" />
+                </div>
+                {isAgentic && (
+                  <div className="loading-hint">
+                    Agentic runs can take a while (local routing model + tools). This is normal.
+                  </div>
+                )}
+              </div>
             </div>
           )}
           <div ref={chatEndRef} />
@@ -222,6 +251,35 @@ export default function ChatPage() {
                 onChange={(e) => setTemperature(e.target.value)}
               />
             </div>
+
+            <div className="modal-field modal-field-check">
+              <label>
+                <input
+                  type="checkbox"
+                  checked={enableOnline}
+                  onChange={(e) => setEnableOnline(e.target.checked)}
+                />
+                Web + YouTube tools (Agentic RAG)
+              </label>
+              <span className="modal-hint">
+                Lets the agent use google_search and youtube for current/video facts.
+              </span>
+            </div>
+
+            <div className="modal-field modal-field-check">
+              <label>
+                <input
+                  type="checkbox"
+                  checked={multiHop}
+                  onChange={(e) => setMultiHop(e.target.checked)}
+                />
+                Multi-hop planning (Agentic RAG)
+              </label>
+              <span className="modal-hint">
+                Breaks complex questions into sub-questions. Slower, but handles chained lookups.
+              </span>
+            </div>
+
             <div className="modal-actions">
               <button className="primary" onClick={() => setSettingsOpen(false)}>
                 Close

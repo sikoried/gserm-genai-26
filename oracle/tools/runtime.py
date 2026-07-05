@@ -15,8 +15,9 @@ _embedder = None
 _client = None
 _model = None
 
-# Token tally for the tool call currently in flight (prompt, completion).
-_tool_tokens = {"prompt": 0, "completion": 0}
+# Token tally for the tool call currently in flight. Reasoning is a subset of
+# completion; model is the id of the LLM a tool used (None for local tools).
+_tool_tokens = {"prompt": 0, "completion": 0, "reasoning": 0, "model": None}
 
 
 def configure(retriever, embedder, client, model) -> None:
@@ -41,14 +42,22 @@ def llm():
 # --- per-tool-call token accounting -------------------------------------------
 
 def reset_tool_tokens() -> None:
-    _tool_tokens["prompt"] = 0
-    _tool_tokens["completion"] = 0
+    _tool_tokens.update(prompt=0, completion=0, reasoning=0, model=None)
 
 
-def add_tool_tokens(prompt_tokens: int, completion_tokens: int) -> None:
+def add_tool_tokens(prompt_tokens: int, completion_tokens: int,
+                    reasoning_tokens: int = 0, model_id: str | None = None) -> None:
     _tool_tokens["prompt"] += int(prompt_tokens or 0)
     _tool_tokens["completion"] += int(completion_tokens or 0)
+    _tool_tokens["reasoning"] += int(reasoning_tokens or 0)
+    if model_id:
+        _tool_tokens["model"] = model_id
 
 
-def get_tool_tokens() -> tuple[int, int]:
-    return _tool_tokens["prompt"], _tool_tokens["completion"]
+def get_tool_tokens() -> tuple[int, int, int]:
+    """(prompt, completion, reasoning) for the tool call just executed."""
+    return _tool_tokens["prompt"], _tool_tokens["completion"], _tool_tokens["reasoning"]
+
+
+def get_tool_model() -> str | None:
+    return _tool_tokens["model"]

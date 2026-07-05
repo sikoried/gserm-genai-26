@@ -1,11 +1,13 @@
 """Structured trace + token accounting for one agentic answer.
 
-A trace is a list of ``TraceStep``s, each attributed to a *kind* — ``router``
-(a local routing decision), ``tool`` (a tool call), or ``synthesis`` (the final
-proxy answer). Local tools record 0 tokens. ``TokenTotals`` aggregates the per-
-step counts and breaks them down by kind so the GUI can show both per-call cost
-and a per-question total. The judge is never part of this (it has no place in a
-QA trace), consistent with the project's "judge excluded" accounting rule.
+A trace is a list of ``TraceStep``s, each attributed to a *kind* — ``planner``
+(multi-hop plan), ``router`` (a local routing decision), ``tool`` (a tool call),
+or ``synthesis`` (a proxy answer / hop answer). Each step also records **which
+model** produced it and its tokens split into **input / output / reasoning**
+(reasoning is the hidden chain-of-thought subset of generation). ``TokenTotals``
+aggregates by kind and by type so the GUI can show both per-call cost and a per-
+question total. Local tools record 0 tokens and no model. The judge is never part
+of this, consistent with the project's "judge excluded" accounting rule.
 """
 from __future__ import annotations
 
@@ -13,19 +15,33 @@ from dataclasses import dataclass, field
 
 # Why the loop stopped — surfaced to the user.
 STOP_REASONS = ("done", "step-budget", "timeout", "loop-guard")
-KINDS = ("router", "tool", "synthesis")
+KINDS = ("planner", "router", "tool", "synthesis")
+# Kinds whose token cost is produced by an LLM (for attribution / model names).
+_MODEL_KINDS = ("planner", "router", "synthesis")
 
 
 @dataclass
 class TraceStep:
     index: int
-    kind: str                    # "router" | "tool" | "synthesis"
+    kind: str                    # "planner" | "router" | "tool" | "synthesis"
     tool: str | None             # tool name (router decision / tool call)
     arguments: dict | None       # tool arguments
     result: str                  # short rendering of the observation / decision
-    prompt_tokens: int = 0
-    completion_tokens: int = 0
+    prompt_tokens: int = 0       # input tokens
+    completion_tokens: int = 0   # generated tokens (includes reasoning)
+    reasoning_tokens: int = 0    # hidden chain-of-thought subset of completion
     elapsed_seconds: float = 0.0
+    model_id: str | None = None  # which model produced this step (None for local tools)
+    hop: int | None = None       # multi-hop sub-question index (None = top level)
+
+    @property
+    def input_tokens(self) -> int:
+        return self.prompt_tokens
+
+    @property
+    def output_tokens(self) -> int:
+        """Visible generation = completion minus the hidden reasoning part."""
+        return max(self.completion_tokens - self.reasoning_tokens, 0)
 
     @property
     def total_tokens(self) -> int:
@@ -38,6 +54,11 @@ class TraceStep:
             "tool": self.tool,
             "arguments": self.arguments,
             "result": self.result,
+            "model_id": self.model_id,
+            "hop": self.hop,
+            "input_tokens": self.input_tokens,
+            "output_tokens": self.output_tokens,
+            "reasoning_tokens": self.reasoning_tokens,
             "prompt_tokens": self.prompt_tokens,
             "completion_tokens": self.completion_tokens,
             "total_tokens": self.total_tokens,
@@ -46,35 +67,64 @@ class TraceStep:
 
 
 @dataclass
+class _Bucket:
+    input: int = 0
+    output: int = 0
+    reasoning: int = 0
+
+    @property
+    def total(self) -> int:
+        return self.input + self.output + self.reasoning
+
+    def to_dict(self) -> dict:
+        return {"input": self.input, "output": self.output,
+                "reasoning": self.reasoning, "total": self.total}
+
+
+@dataclass
 class TokenTotals:
-    """Token counts split by attribution plus a grand total."""
-    router_prompt: int = 0
-    router_completion: int = 0
-    tools_prompt: int = 0
-    tools_completion: int = 0
-    synthesis_prompt: int = 0
-    synthesis_completion: int = 0
+    """Token counts split by attribution (planner/router/tools/synthesis) and type."""
+    planner: _Bucket = field(default_factory=_Bucket)
+    router: _Bucket = field(default_factory=_Bucket)
+    tools: _Bucket = field(default_factory=_Bucket)
+    synthesis: _Bucket = field(default_factory=_Bucket)
+
+    def _all(self):
+        return (self.planner, self.router, self.tools, self.synthesis)
+
+    @property
+    def input_tokens(self) -> int:
+        return sum(b.input for b in self._all())
+
+    @property
+    def output_tokens(self) -> int:
+        return sum(b.output for b in self._all())
+
+    @property
+    def reasoning_tokens(self) -> int:
+        return sum(b.reasoning for b in self._all())
 
     @property
     def prompt_tokens(self) -> int:
-        return self.router_prompt + self.tools_prompt + self.synthesis_prompt
+        return self.input_tokens
 
     @property
     def completion_tokens(self) -> int:
-        return self.router_completion + self.tools_completion + self.synthesis_completion
+        return self.output_tokens + self.reasoning_tokens
 
     @property
     def total_tokens(self) -> int:
-        return self.prompt_tokens + self.completion_tokens
+        return self.input_tokens + self.output_tokens + self.reasoning_tokens
 
     def to_dict(self) -> dict:
         return {
-            "router": {"prompt": self.router_prompt, "completion": self.router_completion,
-                       "total": self.router_prompt + self.router_completion},
-            "tools": {"prompt": self.tools_prompt, "completion": self.tools_completion,
-                      "total": self.tools_prompt + self.tools_completion},
-            "synthesis": {"prompt": self.synthesis_prompt, "completion": self.synthesis_completion,
-                          "total": self.synthesis_prompt + self.synthesis_completion},
+            "planner": self.planner.to_dict(),
+            "router": self.router.to_dict(),
+            "tools": self.tools.to_dict(),
+            "synthesis": self.synthesis.to_dict(),
+            "input_tokens": self.input_tokens,
+            "output_tokens": self.output_tokens,
+            "reasoning_tokens": self.reasoning_tokens,
             "prompt_tokens": self.prompt_tokens,
             "completion_tokens": self.completion_tokens,
             "total_tokens": self.total_tokens,
@@ -92,17 +142,25 @@ class AgentTrace:
 
     def totals(self) -> TokenTotals:
         t = TokenTotals()
+        buckets = {"planner": t.planner, "router": t.router,
+                   "tools": t.tools, "synthesis": t.synthesis}
         for s in self.steps:
-            if s.kind == "router":
-                t.router_prompt += s.prompt_tokens
-                t.router_completion += s.completion_tokens
-            elif s.kind == "tool":
-                t.tools_prompt += s.prompt_tokens
-                t.tools_completion += s.completion_tokens
-            elif s.kind == "synthesis":
-                t.synthesis_prompt += s.prompt_tokens
-                t.synthesis_completion += s.completion_tokens
+            key = "tools" if s.kind == "tool" else s.kind
+            b = buckets.get(key)
+            if b is None:
+                continue
+            b.input += s.input_tokens
+            b.output += s.output_tokens
+            b.reasoning += s.reasoning_tokens
         return t
+
+    def model_names(self) -> dict:
+        """First model id seen per LLM kind — the router / synthesis / planner models."""
+        names: dict[str, str] = {}
+        for s in self.steps:
+            if s.kind in _MODEL_KINDS and s.model_id and s.kind not in names:
+                names[s.kind] = s.model_id
+        return names
 
     def as_text(self) -> str:
         """Human-readable trace, kept for the legacy ``Answer.reasoning`` string."""
@@ -126,4 +184,5 @@ class AgentTrace:
             "stop_reason": self.stop_reason,
             "elapsed_seconds": round(self.elapsed_seconds, 3),
             "totals": self.totals().to_dict(),
+            "models": self.model_names(),
         }

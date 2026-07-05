@@ -29,5 +29,6 @@ def query_rewrite(query: str) -> str:
         [{"role": "system", "content": _SYSTEM}, {"role": "user", "content": query}],
         temperature=0.0,
     )
-    runtime.add_tool_tokens(metrics.prompt_tokens, metrics.completion_tokens)
+    runtime.add_tool_tokens(metrics.prompt_tokens, metrics.completion_tokens,
+                            metrics.reasoning_tokens, model_id=model)
     return content.strip()

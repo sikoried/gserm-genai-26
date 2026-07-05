@@ -83,6 +83,8 @@ class ChatRequest(BaseModel):
     mode: str = "World"  # World | RAG | Agentic RAG
     model: str = QAConfig().model
     temperature: float = 0.0
+    enable_online_tools: bool = False  # a-rag: allow google_search + youtube
+    multi_hop: bool = False            # a-rag: decompose into sub-questions
 
 
 class ChatResponse(BaseModel):
@@ -172,7 +174,9 @@ def post_chat(req: ChatRequest) -> ChatResponse:
     if qa_type is None:
         raise HTTPException(status_code=400, detail=f"Unknown mode: {req.mode!r}")
     config = QAConfig(type=qa_type, model=req.model, endpoint=DEFAULT_ENDPOINT,
-                      temperature=req.temperature)
+                      temperature=req.temperature,
+                      enable_online_tools=req.enable_online_tools,
+                      multi_hop=req.multi_hop)
     try:
         qa = build_qa_system(config)
     except NotImplementedError as exc:  # RAG / a-rag not implemented yet
@@ -188,9 +192,11 @@ def post_chat(req: ChatRequest) -> ChatResponse:
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
     trace = result.trace.to_dict() if result.trace is not None else None
+    usage = None
+    if trace:
+        usage = {**trace["totals"], "models": trace.get("models", {})}
     return ChatResponse(answer=result.content, mode=req.mode, model=req.model,
-                        reasoning=result.reasoning, trace=trace,
-                        usage=trace["totals"] if trace else None)
+                        reasoning=result.reasoning, trace=trace, usage=usage)
 
 
 # ---------------------------------------------------------------------------

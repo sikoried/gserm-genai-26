@@ -13,7 +13,8 @@ selection; this loop enforces the guards that guarantee progress:
 - **done** — the router decided enough is known (``"done"``).
 
 Everything heavy (the router model, the tools, the synthesis LLM call) is
-injected, so the loop is fully unit-testable with fakes and a fake clock.
+injected, so the loop is fully unit-testable with fakes and a fake clock. Each
+step records which model produced it and its input/output/reasoning tokens.
 """
 from __future__ import annotations
 
@@ -25,9 +26,20 @@ from typing import Callable
 from .router import Router
 from .trace import AgentTrace, TraceStep
 
-# synthesize(question, history, observations) -> (answer_text, prompt_tokens,
-# completion_tokens, elapsed_seconds)
-Synthesize = Callable[[str, list, list], "tuple[str, int, int, float]"]
+
+@dataclass
+class SynthesisResult:
+    """What a synthesize(...) call returns: the answer text plus its token cost."""
+    text: str
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    reasoning_tokens: int = 0
+    elapsed_seconds: float = 0.0
+    model_id: str | None = None
+
+
+# synthesize(question, history, observations) -> SynthesisResult
+Synthesize = Callable[[str, list, list], SynthesisResult]
 
 
 @dataclass
@@ -53,7 +65,8 @@ def run_agent(
     tools_by_name: dict,
     synthesize: Synthesize,
     reset_tool_tokens: Callable[[], None] = lambda: None,
-    get_tool_tokens: Callable[[], "tuple[int, int]"] = lambda: (0, 0),
+    get_tool_tokens: Callable[[], "tuple[int, int, int]"] = lambda: (0, 0, 0),
+    get_tool_model: Callable[[], "str | None"] = lambda: None,
     max_steps: int = 6,
     timeout_seconds: float = 120.0,
     clock: Callable[[], float] = time.perf_counter,
@@ -82,6 +95,8 @@ def run_agent(
             result="finish" if decision.finished else f"call {decision.tool}",
             prompt_tokens=decision.prompt_tokens,
             completion_tokens=decision.completion_tokens,
+            reasoning_tokens=decision.reasoning_tokens,
+            model_id=decision.model_id,
         ))
         idx += 1
 
@@ -90,7 +105,6 @@ def run_agent(
             break
 
         if decision.tool not in tools_by_name:
-            # Unknown tool: record it and let the router try again (bounded by budget).
             trace.add(TraceStep(index=idx, kind="tool", tool=decision.tool,
                                 arguments=decision.arguments,
                                 result=f"Unknown tool: {decision.tool}"))
@@ -110,12 +124,12 @@ def run_agent(
         except Exception as exc:  # a tool blowing up must not kill the answer
             result = f"Tool error: {exc}"
         elapsed = clock() - t0
-        ptok, ctok = get_tool_tokens()
+        ptok, ctok, rtok = get_tool_tokens()
 
         trace.add(TraceStep(
             index=idx, kind="tool", tool=decision.tool, arguments=decision.arguments,
             result=_short(result), prompt_tokens=ptok, completion_tokens=ctok,
-            elapsed_seconds=elapsed,
+            reasoning_tokens=rtok, elapsed_seconds=elapsed, model_id=get_tool_model(),
         ))
         idx += 1
         observations.append({"tool": decision.tool, "arguments": decision.arguments,
@@ -128,10 +142,12 @@ def run_agent(
         seen_results.add(norm)
 
     # Always synthesize the final answer (the single conclusion) on the big model.
-    answer, sp, sc, selapsed = synthesize(question, history, observations)
+    syn = synthesize(question, history, observations)
     trace.add(TraceStep(index=idx, kind="synthesis", tool=None, arguments=None,
-                        result=_short(answer), prompt_tokens=sp,
-                        completion_tokens=sc, elapsed_seconds=selapsed))
+                        result=_short(syn.text), prompt_tokens=syn.prompt_tokens,
+                        completion_tokens=syn.completion_tokens,
+                        reasoning_tokens=syn.reasoning_tokens,
+                        elapsed_seconds=syn.elapsed_seconds, model_id=syn.model_id))
     trace.stop_reason = stop_reason
     trace.elapsed_seconds = round(clock() - start, 3)
-    return AgentResult(answer=answer.strip(), trace=trace)
+    return AgentResult(answer=syn.text.strip(), trace=trace)

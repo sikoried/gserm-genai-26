@@ -24,6 +24,22 @@ def test_calculator_edge_cases():
     assert "Could not evaluate" in calculator("1/0")               # div by zero
 
 
+def test_calculator_extended_functions():
+    assert calculator("sqrt(144)") == "12"
+    assert calculator("factorial(6)") == "720"
+    assert calculator("comb(49, 6)") == "13983816"
+    assert calculator("gcd(48, 36)") == "12"
+    assert calculator("log10(1000)") == "3"
+    assert calculator("max(3, 7, 5)") == "7"
+    assert calculator("round(pi, 2)") == "3.14"
+
+
+def test_calculator_rejects_unwhitelisted_calls_and_names():
+    assert "Could not evaluate" in calculator("open('x')")        # not whitelisted
+    assert "Could not evaluate" in calculator("os.system('ls')")  # attribute access
+    assert "Could not evaluate" in calculator("foo")              # unknown name
+
+
 # --- date_tool ----------------------------------------------------------------
 
 def test_date_tool_typical():

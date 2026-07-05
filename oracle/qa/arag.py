@@ -23,7 +23,7 @@ from ..llm import UsageMetrics, chat_with_metrics, make_client
 from ..models import reasoning_request_kwargs
 from ..retrieval import Embedder, load_retriever
 from .. import tools
-from ..agent import LocalRouter, run_agent
+from ..agent import LocalPlanner, LocalRouter, SynthesisResult, run_agent, run_multi_hop
 
 SYNTHESIS_SYSTEM_PROMPT = (
     "You are answering a bar-quiz question. Use the evidence gathered by the tools "
@@ -90,10 +90,10 @@ def _last_user_question(history: list[dict]) -> str:
 
 
 class AgenticRagQA(QASystem):
-    # Index, embedder, and router are heavy; share them across instances.
+    # Index and embedder are heavy; share them across instances (router weights are
+    # shared via oracle.agent.router's model cache).
     _retriever = None
     _embedder = None
-    _router = None
 
     def __init__(self, config: QAConfig):
         super().__init__(config)
@@ -104,14 +104,20 @@ class AgenticRagQA(QASystem):
         self.client = make_client(config.endpoint)
         tools.configure(AgenticRagQA._retriever, AgenticRagQA._embedder,
                         self.client, config.model)
-        if AgenticRagQA._router is None:
-            AgenticRagQA._router = LocalRouter(
-                config.router_model, tools.tool_metas(),
-                device=config.router_device, max_gb=config.router_max_gb,
-            )
+        # Compose the active toolset (online tools only when opted in).
+        self.active_tools = tools.active_tools(config.enable_online_tools)
+        self.tools_by_name = tools.tools_by_name(self.active_tools)
+        self.router = LocalRouter(
+            config.router_model, tools.tool_metas(self.active_tools),
+            device=config.router_device, max_gb=config.router_max_gb,
+        )
+        self.planner = None
+        if config.multi_hop:
+            self.planner = LocalPlanner(config.router_model, self.router.generate,
+                                        max_hops=config.max_hops)
 
     def _synthesize(self, question: str, history: list[dict],
-                    observations: list[dict]):
+                    observations: list[dict]) -> SynthesisResult:
         context = "\n\n".join(f"[{o['tool']}] {o['result']}" for o in observations) \
             or "(no tool results)"
         messages = [
@@ -125,24 +131,39 @@ class AgenticRagQA(QASystem):
             temperature=self.config.temperature,
             **reasoning_request_kwargs(self.config.model, self.config.reasoning_effort),
         )
-        return (content.strip(), metrics.prompt_tokens,
-                metrics.completion_tokens, metrics.elapsed_seconds)
+        return SynthesisResult(
+            text=content.strip(), prompt_tokens=metrics.prompt_tokens,
+            completion_tokens=metrics.completion_tokens,
+            reasoning_tokens=metrics.reasoning_tokens,
+            elapsed_seconds=metrics.elapsed_seconds, model_id=self.config.model,
+        )
 
-    def _run(self, question: str, history: list[dict]) -> Answer:
-        result = run_agent(
-            question=question, history=history, router=AgenticRagQA._router,
-            tools_by_name=tools.TOOLS_BY_NAME, synthesize=self._synthesize,
+    def _run_hop(self, question: str, history: list[dict]):
+        return run_agent(
+            question=question, history=history, router=self.router,
+            tools_by_name=self.tools_by_name, synthesize=self._synthesize,
             reset_tool_tokens=tools.reset_tool_tokens,
-            get_tool_tokens=tools.get_tool_tokens,
+            get_tool_tokens=tools.get_tool_tokens, get_tool_model=tools.get_tool_model,
             max_steps=self.config.max_steps,
             timeout_seconds=self.config.agent_timeout_seconds,
         )
+
+    def _run(self, question: str, history: list[dict]) -> Answer:
+        if self.planner is not None:
+            result = run_multi_hop(
+                question=question, history=history, planner=self.planner,
+                run_hop=self._run_hop, synthesize_final=self._synthesize,
+                max_hops=self.config.max_hops,
+            )
+        else:
+            result = self._run_hop(question, history)
         totals = result.trace.totals()
         metrics = UsageMetrics(
             prompt_tokens=totals.prompt_tokens,
             completion_tokens=totals.completion_tokens,
             total_tokens=totals.total_tokens,
             elapsed_seconds=result.trace.elapsed_seconds,
+            reasoning_tokens=totals.reasoning_tokens,
         )
         return Answer(content=result.answer, metrics=metrics,
                       reasoning=result.trace.as_text(), trace=result.trace)

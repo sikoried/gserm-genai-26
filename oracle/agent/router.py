@@ -27,6 +27,10 @@ _MODEL_GB = {
 }
 
 
+# Shared model/tokenizer cache, keyed by (model_id, device).
+_MODEL_CACHE: dict = {}
+
+
 @dataclass
 class RouterDecision:
     finished: bool
@@ -34,6 +38,8 @@ class RouterDecision:
     arguments: dict | None = None
     prompt_tokens: int = 0
     completion_tokens: int = 0
+    reasoning_tokens: int = 0  # local router isn't a reasoning model → 0
+    model_id: str | None = None
     raw: str = ""
 
 
@@ -66,16 +72,30 @@ _SYSTEM = (
     "Reply with ONLY a JSON object, no prose:\n"
     '  {"tool": "<name>", "arguments": {...}}  to call a tool, or\n'
     '  {"finished": true}                      when enough is known to answer.\n'
-    "Prefer to finish as soon as the question can be answered. Never repeat a tool "
-    "call you already made with the same arguments."
+    "Guidance:\n"
+    "- Use `search`/`wiki_lookup` for encyclopedic facts.\n"
+    "- Use `google_search` for current, recent, or after-the-cutoff facts (news, "
+    "'latest', 'current', prices, standings) that a static encyclopedia would miss.\n"
+    "- Use `youtube` when the question refers to the content of a video (a creator's "
+    "video, a tutorial, 'in the video …').\n"
+    "- Use `calculator` ONLY for arithmetic/math; do not use it to look up facts.\n"
+    "Pick the tool whose description best matches the question. Prefer to finish as "
+    "soon as the question can be answered. Never repeat a tool call with the same "
+    "arguments."
 )
+
+
+def _first_sentences(text: str, limit: int = 200) -> str:
+    """A compact one-line description for the router prompt."""
+    collapsed = " ".join((text or "").split())
+    return collapsed[:limit] + ("…" if len(collapsed) > limit else "")
 
 
 def _render_tools(metas: list[dict]) -> str:
     lines = []
     for m in metas:
         args = ", ".join(f"{k}: {v.get('type', 'any')}" for k, v in (m.get("inputs") or {}).items())
-        lines.append(f"- {m['name']}({args}): {m['description'].splitlines()[0]}")
+        lines.append(f"- {m['name']}({args}): {_first_sentences(m['description'])}")
     return "\n".join(lines)
 
 
@@ -137,11 +157,21 @@ class LocalRouter(Router):
     def _ensure_model(self) -> None:
         if self._model is not None:
             return
-        from transformers import AutoModelForCausalLM, AutoTokenizer
-        self._tokenizer = AutoTokenizer.from_pretrained(self.model_id)
-        self._model = AutoModelForCausalLM.from_pretrained(
-            self.model_id, torch_dtype="auto"
-        ).to(self.device)
+        # Cache weights per (model, device) so several routers/planners share them.
+        cached = _MODEL_CACHE.get((self.model_id, self.device))
+        if cached is None:
+            from transformers import AutoModelForCausalLM, AutoTokenizer
+            tokenizer = AutoTokenizer.from_pretrained(self.model_id)
+            model = AutoModelForCausalLM.from_pretrained(
+                self.model_id, torch_dtype="auto"
+            ).to(self.device)
+            cached = (tokenizer, model)
+            _MODEL_CACHE[(self.model_id, self.device)] = cached
+        self._tokenizer, self._model = cached
+
+    def generate(self, messages: list[dict]) -> tuple[str, int, int]:
+        """Public generate — reused by the planner (returns text, prompt, completion)."""
+        return self._generate(messages)
 
     def _generate(self, messages: list[dict]) -> tuple[str, int, int]:
         self._ensure_model()
@@ -178,4 +208,5 @@ class LocalRouter(Router):
         decision = parse_decision(text)
         decision.prompt_tokens = ptok
         decision.completion_tokens = ctok
+        decision.model_id = self.model_id
         return decision

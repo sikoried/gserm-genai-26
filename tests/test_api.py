@@ -109,6 +109,31 @@ def test_chat_unknown_mode_is_400():
     assert resp.status_code == 400
 
 
+def test_chat_threads_online_and_multihop_flags_into_config(monkeypatch):
+    # Regression: the GUI could not enable online tools / multi-hop because post_chat
+    # dropped the flags — the router never saw google_search / youtube.
+    from oracle.llm import UsageMetrics
+    from oracle.qa.base import Answer
+
+    seen = {}
+
+    class _FakeQA:
+        def __init__(self, cfg):
+            seen["online"] = cfg.enable_online_tools
+            seen["multi_hop"] = cfg.multi_hop
+
+        def answer_chat(self, conversation):
+            return Answer(content="ok", metrics=UsageMetrics(1, 1, 2, 0.1))
+
+    monkeypatch.setattr(api, "build_qa_system", lambda cfg: _FakeQA(cfg))
+    resp = client.post("/api/chat", json={
+        "question": "latest news?", "mode": "Agentic RAG",
+        "enable_online_tools": True, "multi_hop": True,
+    })
+    assert resp.status_code == 200
+    assert seen == {"online": True, "multi_hop": True}
+
+
 def test_chat_agentic_carries_structured_trace(monkeypatch):
     # The a-rag path attaches an AgentTrace; the API must surface it as `trace` + `usage`.
     from oracle.llm import UsageMetrics
@@ -116,9 +141,13 @@ def test_chat_agentic_carries_structured_trace(monkeypatch):
     from oracle.agent.trace import AgentTrace, TraceStep
 
     trace = AgentTrace(stop_reason="done", elapsed_seconds=0.3, steps=[
-        TraceStep(0, "router", "calculator", {"expression": "2+2"}, "call calculator", 5, 2),
-        TraceStep(1, "tool", "calculator", {"expression": "2+2"}, "4", 0, 0, 0.001),
-        TraceStep(2, "synthesis", None, None, "The answer is 4.", 11, 4, 0.2),
+        TraceStep(0, "router", "calculator", {"expression": "2+2"}, "call calculator",
+                  prompt_tokens=5, completion_tokens=2, model_id="qwen/router"),
+        TraceStep(1, "tool", "calculator", {"expression": "2+2"}, "4",
+                  prompt_tokens=0, completion_tokens=0, elapsed_seconds=0.001),
+        TraceStep(2, "synthesis", None, None, "The answer is 4.",
+                  prompt_tokens=11, completion_tokens=4, elapsed_seconds=0.2,
+                  model_id="big/synth"),
     ])
 
     class _FakeARag:
@@ -136,9 +165,11 @@ def test_chat_agentic_carries_structured_trace(monkeypatch):
     steps = body["trace"]["steps"]
     assert [s["kind"] for s in steps] == ["router", "tool", "synthesis"]
     assert steps[1]["tool"] == "calculator" and steps[1]["total_tokens"] == 0
-    # per-question token breakdown
+    # per-question token breakdown (input/output/reasoning + attribution + models)
     assert body["usage"]["total_tokens"] == 22
+    assert body["usage"]["input_tokens"] == 16 and body["usage"]["output_tokens"] == 6
     assert body["usage"]["tools"]["total"] == 0
+    assert body["usage"]["models"] == {"router": "qwen/router", "synthesis": "big/synth"}
     assert body["trace"]["stop_reason"] == "done"
 
 
