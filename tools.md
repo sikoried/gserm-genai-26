@@ -74,16 +74,26 @@ New tools to add for quiz answering:
   over the gathered evidence (see Termination). Quiz answers should be **short and
   exact** (a name, number, year), not an essay — the synthesis prompt enforces this.
 
-### Online tools (network — optional, opt-in)
+### Online tools (network — enabled by default)
 
-These reach the public internet, so they are **opt-in**: clearly marked as online
-and **disabled by default**. *As built,* they use **cost-free, keyless open-source
-methods** (no API key, no paid service) and are gated by a config setting /
-GUI toggle (`enable_online_tools`) rather than an API key, so an offline run never
-calls out. Each obeys the tool contract (returns a short string, never raises on
-"no result" or a network error), and each round-trip is recorded in the trace; the
-backend HTTP call is isolated in an injectable function so tests mock it and stay
-network-free.
+These reach the public internet. They use **cost-free, keyless open-source methods**
+(no API key, no paid service) and are **enabled by default** (`enable_online_tools`
+defaults to **true**) so current-events questions work out of the box. They remain
+individually disableable via the setting for a deliberately offline run. Each obeys
+the tool contract (returns a short string, never raises on "no result" or a network
+error), and each round-trip is recorded in the trace; the backend HTTP call is
+isolated in an injectable function so tests mock it and stay network-free.
+
+- **Offline resilience — must never crash.** When there is **no internet
+  connection** (DNS failure, timeout, connection refused), the online tools must
+  **fail gracefully**: catch the network error and return a short, clear message
+  such as `"No internet connection — web search unavailable."` (rather than raising),
+  so the agent can still finish via the local tools / its own knowledge. The message
+  is a normal tool observation, so it flows into the trace and lets the synthesizer
+  **tell the user** that the web/YouTube lookup could not be performed instead of
+  producing a confusing or empty answer. A lightweight connectivity check (or simply
+  treating the first failed round-trip as "offline") is acceptable; the requirement
+  is: **inform the user, do not crash.**
 
 - **`google_search`** — web search returning the **5 best results**, each as
   `title · url · snippet`. *As built,* backed by **DuckDuckGo** via the cost-free
@@ -210,8 +220,10 @@ director of the highest-grossing 1997 film born?" (find film → find director �
 birthplace → find country). The plain loop is *reactive*: the router picks one tool
 at a time under a flat step budget, which makes deep chains fragile.
 
-**Implemented (opt-in via `multi_hop`, `oracle/agent/planner.py` +
-`oracle/agent/multihop.py`) — plan-then-execute with a facts scratchpad:**
+**Implemented (`oracle/agent/planner.py` + `oracle/agent/multihop.py`) —
+plan-then-execute with a facts scratchpad.** It is **on by default** (`multi_hop`
+defaults to **true**) and toggled **per question from the chat** (see Configuration
+& GUI):
 
 - **Plan.** A `LocalPlanner` (reusing the local router model) emits an ordered list
   of **sub-questions** (JSON), bounded by `max_hops`.
@@ -239,19 +251,27 @@ As-built configuration (`oracle/config.py`, per QA-system config / `QAConfig`):
 - **Router:** `router_model` (default `Qwen/Qwen2.5-1.5B-Instruct`), `router_device`
   (default auto), `router_max_gb` (default 6).
 - **Termination:** `max_steps` (default 6), `agent_timeout_seconds` (default 120).
-- **Online tools:** `enable_online_tools` (default **false**).
-- **Multi-hop:** `multi_hop` (default **false**), `max_hops` (default 3).
+- **Online tools:** `enable_online_tools` (default **true**).
+- **Multi-hop:** `multi_hop` (default **true**), `max_hops` (default 3).
 
-The chat GUI exposes the two opt-in switches in **Settings** — *"Web + YouTube
-tools"* (`enable_online_tools`) and *"Multi-hop planning"* (`multi_hop`) — and
-`/api/chat` threads them into the config. Online tools and multi-hop are **off by
-default**, so they must be enabled per request to take effect.
+GUI placement:
+
+- **Multi-hop planning** is a **per-question toggle in the chat itself** (next to the
+  input / mode selector, not buried in Settings), so the user chooses hop-by-hop
+  whether to plan. It is **on by default** and shown **only in `Agentic RAG` mode**
+  (hidden/disabled for World and RAG, where it has no effect).
+- **Web + YouTube tools** stay a setting (`enable_online_tools`), now **on by
+  default**; expose it wherever settings live so a user can turn the network off for
+  a deliberately offline run.
+- `/api/chat` carries both flags per request and threads them into the config; since
+  both now default to **on**, current-events and multi-step questions work without
+  the user changing anything.
 
 ## Out of Scope (for now)
 
 - **Uncapped** external calls or **paid** search/video APIs — the online tools are
-  keyless/open-source, opt-in, and capped (5 results, truncated text); anything
-  beyond that (paid APIs, uncapped fetches) stays out of scope.
+  keyless/open-source and capped (5 results, truncated text); anything beyond that
+  (paid APIs, uncapped fetches) stays out of scope.
 - Recursive sub-agents and a verification/backtracking hop for multi-hop (see that
   section) — deferred to a later iteration.
 
@@ -272,7 +292,8 @@ Module map of the as-built feature:
 - `oracle/api.py` — `/api/chat` carries `enable_online_tools` / `multi_hop` in and the
   structured `trace` + `usage` (token breakdown + model names) out.
 - `frontend/src/components/TraceView.jsx` + `pages/ChatPage.jsx` — trace rendering,
-  Settings toggles, and the in-flight progress indicator.
+  the per-question multi-hop toggle in the chat (Agentic RAG only), the web/YouTube
+  setting, and the in-flight progress indicator.
 - Tests: `tests/test_tools.py`, `test_online_tools.py` (mocked HTTP),
   `test_agent_loop.py` (guards + token accounting), `test_multihop.py`,
   `test_api.py`.
@@ -301,3 +322,12 @@ bounded orchestrator** rather than `ToolCallingAgent`; and the concluding step i
 - Every question **terminates** in a single final answer; tests cover the loop
   guards (step-budget exhaustion, repeated call, timeout) forcing a conclusion
   rather than looping or erroring, and the trace records the termination reason.
+- **Online tools are on by default** — a current-events question (e.g. "Who is the
+  current CEO of OpenAI?") is answered without the user changing any setting.
+- **No internet does not crash.** With connectivity down, the online tools return a
+  clear "no internet / web unavailable" observation (not an exception), the run still
+  terminates, and the final answer tells the user the web/YouTube lookup could not be
+  performed. A test simulates a network failure and asserts graceful handling.
+- **Multi-hop is a per-question chat toggle**, on by default, shown **only in
+  `Agentic RAG` mode**; a test asserts the chosen value is threaded through
+  `/api/chat` per request.
