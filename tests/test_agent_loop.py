@@ -98,6 +98,29 @@ def test_rag_first_can_be_disabled():
     assert [s.kind for s in res.trace.steps] == ["router", "synthesis"]
 
 
+def test_force_youtube_runs_youtube_up_front():
+    calls = []
+
+    def youtube(query=""):
+        calls.append(query)
+        return "[1] Some video\n[transcript] the answer is 5 obstacles"
+
+    res = run_agent(question="In X's squirrel maze video, how many obstacles?", history=[],
+                    router=ScriptedRouter([_finish()]),
+                    tools_by_name={"youtube": youtube}, synthesize=_synth(),
+                    rag_first=False, force_youtube=True)
+    assert calls == ["In X's squirrel maze video, how many obstacles?"]
+    first_tool = next(s for s in res.trace.steps if s.kind == "tool")
+    assert first_tool.tool == "youtube"
+
+
+def test_force_youtube_no_op_without_youtube_tool():
+    res = run_agent(question="q", history=[], router=ScriptedRouter([_finish()]),
+                    tools_by_name=_echo_tools(), synthesize=_synth(),
+                    rag_first=False, force_youtube=True)
+    assert [s.kind for s in res.trace.steps] == ["router", "synthesis"]
+
+
 def test_rag_first_no_op_when_no_search_tool():
     # rag_first is harmless when the toolset has no `search` (e.g. minimal setups).
     res = run_agent(question="q", history=[], router=ScriptedRouter([_finish()]),

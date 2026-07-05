@@ -106,9 +106,13 @@ isolated in an injectable function so tests mock it and stay network-free.
   uses **`yt-dlp`** (`ytsearchN:`, metadata only — nothing is downloaded) and
   transcripts use **`youtube-transcript-api`**; both are keyless/open-source.
   Capped at 5 videos with a per-video transcript-length cap so token cost stays
-  bounded. Used as a **fallback**: the router is told to try `youtube` when
-  `search` and `google_search` come back empty/unhelpful, since transcripts often
-  contain answers the other tools miss. (`oracle/tools/youtube.py`.)
+  bounded. **Forced for video questions:** when the question explicitly references a
+  video (`video`, `youtube`, `clip`, `episode`, `trailer`, …), `youtube` is run **up
+  front** (like RAG-first) so the transcript is always in the evidence — the router
+  otherwise settles for a web result and never reaches it. Such a question is
+  answered **single-hop** (multi-hop decomposition is skipped, since it would lose
+  the video context). `youtube` also stays a general **fallback** the router is told
+  to try when `search`/`google_search` are unhelpful. (`oracle/tools/youtube.py`.)
 
 Both are token-light for the tools themselves (no LLM call → 0 tokens), but they
 feed large text into the synthesizer, so they respect the **step budget / timeout**
@@ -447,8 +451,10 @@ bounded orchestrator** rather than `ToolCallingAgent`; and the concluding step i
   rephrase-on-empty, and the genuinely-different cases), and a router re-request of a
   completed call is shown as a clean *"finishing"* step rather than another call.
 - **`google_search` returns up to 10 results** (a test covers the default and the
-  cap); **`youtube` is offered as a fallback** in the router prompt when the other
-  tools are unhelpful.
+  cap). **`youtube` is invoked for video questions**: a question referencing a video
+  forces a YouTube lookup up front and is answered single-hop (tests cover the
+  video-reference detection and the forced-lookup preamble); it also stays a router
+  fallback when the other tools are unhelpful.
 - **Recursion & verification are bounded and terminating.** `max_depth > 1` nests
   sub-agents (steps carry increasing `depth`); the verification hop backtracks to a
   corrected answer on contradiction and runs **at most once**. Tests cover nested

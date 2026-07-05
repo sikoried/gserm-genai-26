@@ -16,6 +16,8 @@ the ``Answer``.
 """
 from __future__ import annotations
 
+import re
+
 from .base import Answer, QASystem
 from .rag import DEFAULT_SYSTEM_PROMPT
 from ..config import QAConfig
@@ -65,6 +67,15 @@ def _sanitize_messages(messages):
         else:
             m["content"] = "(no output)"
     return messages
+
+
+_VIDEO_RE = re.compile(r"\b(video|videos|youtube|yt|clip|clips|vlog|episode|trailer|footage)\b",
+                       re.IGNORECASE)
+
+
+def references_video(text: str) -> bool:
+    """True if the question is explicitly about a video (→ force a YouTube lookup)."""
+    return bool(_VIDEO_RE.search(text or ""))
 
 
 def _fmt_args(args) -> str:
@@ -156,7 +167,7 @@ class AgenticRagQA(QASystem):
             elapsed_seconds=metrics.elapsed_seconds, model_id=self.config.model,
         )
 
-    def _run_hop(self, question: str, history: list[dict]):
+    def _run_hop(self, question: str, history: list[dict], force_youtube: bool = False):
         return run_agent(
             question=question, history=history, router=self.router,
             tools_by_name=self.tools_by_name, synthesize=self._synthesize,
@@ -164,13 +175,18 @@ class AgenticRagQA(QASystem):
             get_tool_tokens=tools.get_tool_tokens, get_tool_model=tools.get_tool_model,
             max_steps=self.config.max_steps,
             timeout_seconds=self.config.agent_timeout_seconds,
-            rag_first=self.config.rag_first, call_cache=self._call_cache,
+            rag_first=self.config.rag_first, force_youtube=force_youtube,
+            call_cache=self._call_cache,
         )
 
     def _run(self, question: str, history: list[dict]) -> Answer:
         # One result cache per question, shared across all hops / recursion.
         self._call_cache: dict = {}
-        if self.planner is not None:
+        # A question explicitly about a video is best answered from the transcript, in
+        # one pass with YouTube forced — decomposing it into sub-questions loses the
+        # video context and lets the router settle for a web result instead.
+        wants_video = references_video(question) and "youtube" in self.tools_by_name
+        if self.planner is not None and not wants_video:
             result = run_multi_hop(
                 question=question, history=history, planner=self.planner,
                 run_hop=self._run_hop, synthesize_final=self._synthesize,
@@ -178,7 +194,7 @@ class AgenticRagQA(QASystem):
                 max_hops=self.config.max_hops, max_depth=self.config.max_depth,
             )
         else:
-            result = self._run_hop(question, history)
+            result = self._run_hop(question, history, force_youtube=wants_video)
         totals = result.trace.totals()
         metrics = UsageMetrics(
             prompt_tokens=totals.prompt_tokens,

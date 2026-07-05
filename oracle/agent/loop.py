@@ -95,6 +95,7 @@ def run_agent(
     max_steps: int = 6,
     timeout_seconds: float = 120.0,
     rag_first: bool = True,
+    force_youtube: bool = False,
     call_cache: dict | None = None,
     clock: Callable[[], float] = time.perf_counter,
 ) -> AgentResult:
@@ -156,6 +157,18 @@ def run_agent(
         seen_calls.add(_key("search", args))
         seen_results.add(_short(result, 400))
         _record_query("search", args, result)
+
+    # For questions that explicitly reference a video, force a YouTube lookup up front
+    # so its transcript is in the evidence — the router otherwise settles for a web
+    # result and never reaches `youtube`.
+    if force_youtube and "youtube" in tools_by_name:
+        args = {"query": question}
+        result, step = _run_tool("youtube", args)
+        trace.add(step)
+        observations.append({"tool": "youtube", "arguments": args, "result": result})
+        seen_calls.add(_key("youtube", args))
+        seen_results.add(_short(result, 400))
+        _record_query("youtube", args, result)
 
     while True:
         if clock() - start > timeout_seconds:
