@@ -12,12 +12,15 @@ from __future__ import annotations
 from .trace import AgentTrace, TraceStep, TokenTotals, STOP_REASONS
 from .router import Router, RouterDecision, LocalRouter
 from .loop import AgentResult, SynthesisResult, run_agent
-from .planner import Planner, PlanResult, LocalPlanner, SingleHopPlanner
+from .planner import Planner, PlanResult, LocalPlanner, ProxyPlanner, SingleHopPlanner
+from .verify import Verifier, VerifyResult, ProxyVerifier
 from .multihop import run_multi_hop
 
 __all__ = [
     "AgentTrace", "TraceStep", "TokenTotals", "STOP_REASONS",
     "Router", "RouterDecision", "LocalRouter",
     "AgentResult", "SynthesisResult", "run_agent",
-    "Planner", "PlanResult", "LocalPlanner", "SingleHopPlanner", "run_multi_hop",
+    "Planner", "PlanResult", "LocalPlanner", "ProxyPlanner", "SingleHopPlanner",
+    "Verifier", "VerifyResult", "ProxyVerifier",
+    "run_multi_hop",
 ]

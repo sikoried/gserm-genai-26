@@ -95,10 +95,10 @@ isolated in an injectable function so tests mock it and stay network-free.
   treating the first failed round-trip as "offline") is acceptable; the requirement
   is: **inform the user, do not crash.**
 
-- **`google_search`** — web search returning the **5 best results**, each as
+- **`google_search`** — web search returning the **10 best results**, each as
   `title · url · snippet`. *As built,* backed by **DuckDuckGo** via the cost-free
-  `ddgs` library (no key). Results are capped at 5 and snippets truncated so the
-  router prompt stays small. (`oracle/tools/websearch.py`.)
+  `ddgs` library (no key). Results are capped at 10 (default) and snippets truncated
+  so the router prompt stays manageable. (`oracle/tools/websearch.py`.)
 - **`youtube`** — find the **5 best matching videos** and **extract the information
   needed to answer** from them: pull each video's transcript/captions (title +
   description as fallback) and return a compact, answer-oriented digest the
@@ -106,7 +106,9 @@ isolated in an injectable function so tests mock it and stay network-free.
   uses **`yt-dlp`** (`ytsearchN:`, metadata only — nothing is downloaded) and
   transcripts use **`youtube-transcript-api`**; both are keyless/open-source.
   Capped at 5 videos with a per-video transcript-length cap so token cost stays
-  bounded. (`oracle/tools/youtube.py`.)
+  bounded. Used as a **fallback**: the router is told to try `youtube` when
+  `search` and `google_search` come back empty/unhelpful, since transcripts often
+  contain answers the other tools miss. (`oracle/tools/youtube.py`.)
 
 Both are token-light for the tools themselves (no LLM call → 0 tokens), but they
 feed large text into the synthesizer, so they respect the **step budget / timeout**
@@ -121,9 +123,27 @@ instruct model is loaded in-process via `transformers` and prompted to emit a
 **JSON decision** (`{"tool": …, "arguments": …}` or `{"finished": true}`), which the
 orchestrator executes — a structured-JSON router rather than smolagents'
 `TransformersModel` tool-calling, chosen for deterministic control and clean token
-counts. The router prompt lists the active tools' descriptions plus explicit
-guidance on when to prefer `google_search` (current/after-cutoff facts) or `youtube`
-(video-content questions) vs. the local `search`/`wiki_lookup`.
+counts. The router prompt lists the active tools' descriptions plus an explicit
+**escalation order** — `search`/`wiki_lookup` (local) → `google_search` (web) →
+`youtube` (video transcripts, also a fallback when the others are unhelpful) — and
+tells it **not to repeat** a call already made and to **finish** once it has an
+answer.
+
+Because the small router is imperfect, two structural guards back the prompt up:
+
+- **No repeated / near-duplicate calls.** If the router re-requests a
+  `(tool, arguments)` it already ran (a common small-model failure), the loop does
+  not re-execute it — it records a clear *"already ran … — finishing"* step and
+  stops. This also catches **reworded-but-equivalent** queries: a tool that already
+  returned a useful result, re-invoked with a query whose words overlap heavily
+  (Jaccard ≥ 0.6) — e.g. *"World Cup 2026 host countries"* then *"2026 FIFA World
+  Cup host countries"* — is treated as a repeat. (A tool whose previous result was
+  **empty** may still be retried with a rephrased query — the legitimate
+  rephrase-on-empty case.)
+- **Shared result cache.** Within one question (across all multi-hop hops and
+  recursion) an identical `(tool, arguments)` is executed **at most once**; later
+  hops reuse the cached result (shown as *"(cached)"* in the trace). This stops the
+  same query being fetched several times.
 
 - **Model choice:** any Hugging Face instruct model that **fits in local memory**.
   Default to **`Qwen/Qwen2.5-1.5B-Instruct`** (~3 GB fp16, ~1 GB 4-bit; strong
@@ -185,10 +205,11 @@ a **structured, per-step trace** surfaced in the GUI:
     model's cost is visible and not conflated with output.
   A local tool has input = output = reasoning = 0.
 - **Per question (aggregate)**, display the **total tokens** to answer it, split
-  into **input / output / reasoning** and attributed across **router**, **tools**,
-  and **synthesis**, plus total wall-clock time. This reuses the existing
-  `UsageMetrics` model (which already carries `reasoning_tokens`) and the project's
-  "judge excluded" accounting rule.
+  into **input / output / reasoning** and attributed across **planner**, **router**,
+  **tools**, **synthesis**, and **verify**, plus total wall-clock time. This reuses
+  the existing `UsageMetrics` model (which already carries `reasoning_tokens`) and the
+  project's "judge excluded" accounting rule. Steps also carry a recursion `depth`,
+  so nested sub-agent steps can be **indented** in the GUI.
 - **Model names in the GUI.** Surface, per answer, both **which model routed** (the
   local router model id) and **which model composed the final answer** (the
   synthesis model id) — e.g. in the trace summary line and/or the per-step "model"
@@ -242,8 +263,21 @@ plan-then-execute with a facts scratchpad.** It is **on by default** (`multi_hop
 defaults to **true**) and toggled **per question from the chat** (see Configuration
 & GUI):
 
-- **Plan.** A `LocalPlanner` (reusing the local router model) emits an ordered list
-  of **sub-questions** (JSON), bounded by `max_hops`.
+- **Plan.** A planner emits an ordered list of **sub-questions** (JSON), bounded by
+  `max_hops`. The **planner step is always recorded in the trace** — even when the
+  planner decides the question is atomic (a single-item plan, shown as *"atomic — no
+  decomposition needed"*) — so the user can always see that planning happened and
+  what it decided.
+- **Choice of planning model (`planner_model`).** The small local router is weak at
+  decomposing *hard* questions, so the planner model is **selectable per question**:
+  - `"router"` (default) — `LocalPlanner`, the small local router model: fast and
+    free, fine for easy/medium questions.
+  - `"answer"` — `ProxyPlanner`, the **big model chosen in 'Model'** (via the proxy):
+    the small orchestrator hands the planning task to the large model, which plans
+    difficult multi-step questions far better (at the cost of proxy tokens). Its
+    tokens are attributed to the `planner` bucket in the trace, tagged with the big
+    model's id. Exposed as a **"Planner: Small / Big model"** control in the chat,
+    shown only when multi-hop is on.
 - **Execute per hop with a scratchpad.** Each sub-question is answered by the bounded
   `run_agent` loop; the answers of earlier hops are threaded forward as **known
   facts** in the next hop's context, making dependencies explicit.
@@ -252,14 +286,22 @@ defaults to **true**) and toggled **per question from the chat** (see Configurat
   plain, non-planning behaviour exactly.
 - **Budget as depth, not just count.** Depth is bounded by `max_hops` and each hop
   carries the loop's own step budget / timeout, so the whole tree always terminates.
-- **Nested trace.** The trace shows a `planner` step, then every hop's steps tagged
-  with their hop index, then the final `synthesis`; token accounting rolls the hops'
-  cost up into the per-question total (with a dedicated `planner` attribution).
-
-Ideas **not** taken this iteration, kept for later: recursive bounded **sub-agents**
-per sub-question (nested child traces), and a **verification / backtracking hop**
-(re-query to confirm a candidate; on contradiction, backtrack to an earlier fact) —
-both bounded so they can't loop.
+- **Recursive bounded sub-agents.** A hop's sub-question may itself be planned and
+  decomposed, down to `max_depth` planning levels (`max_depth=1` = flat plan-once;
+  higher = nested sub-agents for genuinely multi-step questions). Each level's steps
+  are tagged with their recursion `depth`, so the **trace nests**; the base case (max
+  depth reached, or an atomic sub-question) runs the bounded `run_agent` leaf loop.
+  `max_depth × max_hops × per-hop step budget × timeout` bound the whole tree, so it
+  always terminates.
+- **Verification / backtracking hop.** After the top-level answer is composed, an
+  optional **bounded** verifier (`verify`, `oracle/agent/verify.py`) re-checks it
+  against the gathered facts using the big model; on a contradiction it returns a
+  corrected answer (a one-shot **backtrack**). It runs **at most once** (top level
+  only) and cannot loop; its cost is a dedicated `verify` attribution in the trace.
+- **Nested trace + attribution.** The trace shows a `planner` step, each hop's steps
+  tagged with hop index and recursion `depth`, the final `synthesis`, and (if on) a
+  `verify` step; token accounting rolls everything up into the per-question total
+  with `planner` / `router` / `tools` / `synthesis` / `verify` buckets.
 
 ## Configuration & GUI
 
@@ -269,7 +311,13 @@ As-built configuration (`oracle/config.py`, per QA-system config / `QAConfig`):
   (default auto), `router_max_gb` (default 6).
 - **Termination:** `max_steps` (default 6), `agent_timeout_seconds` (default 120).
 - **Online tools:** `enable_online_tools` (default **true**).
-- **Multi-hop:** `multi_hop` (default **true**), `max_hops` (default 3).
+- **Termination budgets:** `max_steps` (default 6) — tool calls before forced
+  synthesis; `max_hops` (default 3) — sub-questions per plan; `max_depth` (default 1)
+  — recursive planning levels (1 = flat).
+- **Multi-hop:** `multi_hop` (default **true**), `planner_model` (default `"router"`;
+  `"answer"` plans with the big `model`), `verify` (default **true**) — run one
+  bounded verification/backtracking hop. `verify` applies on the multi-hop path (on
+  by default); it is a no-op when multi-hop is turned off.
 - **RAG-first:** `rag_first` (default **true**) — force a local index search before
   other tools.
 
@@ -287,20 +335,44 @@ GUI placement:
   - **OFF (single-hop)** — the question is answered in one pass with direct tool
     calls; faster, and best for simple, self-contained questions (e.g. *"What is the
     capital of France?"*).
+- **Planner model** is a **per-question chat control** ("Small / Big model"), shown
+  only in `Agentic RAG` mode when multi-hop is on (`planner_model`).
 - **Web + YouTube tools** stay a setting (`enable_online_tools`), now **on by
   default**; expose it wherever settings live so a user can turn the network off for
   a deliberately offline run.
-- `/api/chat` carries both flags per request and threads them into the config; since
-  both now default to **on**, current-events and multi-step questions work without
-  the user changing anything.
+- **Budgets & verification are in Settings** with plain-language explanations:
+  `max_steps` (tool-call cap), `max_hops` (sub-questions per plan), `max_depth`
+  (recursive planning levels), and a **Verify answer** checkbox (`verify`).
+- `/api/chat` carries all these flags per request and threads them into the config;
+  since the online/multi-hop defaults are **on**, current-events and multi-step
+  questions work without the user changing anything.
+
+Chat-session behaviour:
+
+- **Independent questions.** Each question is answered **on its own** — prior turns in
+  the same chat are **not** sent to the backend, so a new question is never
+  influenced by an earlier one (this also fixed a bug where switching multi-hop
+  re-used the previous question's context). The transcript stays visible; retrieval,
+  planning and RAG-first all key off the current question only.
+- **Session persistence.** Both the **chat list** and the **UI settings** (model,
+  mode, multi-hop, planner choice, online tools, budgets, verify) are persisted in
+  `sessionStorage`, so navigating **Chat ↔ Comparison** (which unmounts the chat
+  view) or reloading no longer loses the running session's chats or chosen settings.
+  A persisted model choice is kept as long as it's still offered by `/api/models`.
+- **Chat management.** New chats are created with **+ New Chat**; each chat in the
+  sidebar has a **delete (`×`)** control (revealed on hover / when active). Deleting
+  the active chat selects a neighbour, and deleting the last chat leaves a fresh
+  empty one — the app is never left with zero chats. Deletions persist with the rest
+  of the session.
 
 ## Out of Scope (for now)
 
 - **Uncapped** external calls or **paid** search/video APIs — the online tools are
   keyless/open-source and capped (5 results, truncated text); anything beyond that
   (paid APIs, uncapped fetches) stays out of scope.
-- Recursive sub-agents and a verification/backtracking hop for multi-hop (see that
-  section) — deferred to a later iteration.
+- **Multi-turn follow-ups** — since each question is answered independently (no
+  history sent), questions that rely on an earlier turn's context ("and its
+  population?") are not supported; start them as their own question.
 
 ## Implementation notes
 
@@ -311,9 +383,11 @@ Module map of the as-built feature:
   wrapped as smolagents `Tool`s in `__init__.py`; `runtime.py` holds shared
   retriever/embedder/client and the per-tool token tally.
 - `oracle/agent/` — `router.py` (local JSON router + weight cache + memory
-  guardrail), `loop.py` (bounded, always-terminating orchestrator + `SynthesisResult`),
-  `planner.py` + `multihop.py` (multi-hop), `trace.py` (structured trace + token
-  totals by attribution and by input/output/reasoning type).
+  guardrail), `loop.py` (bounded, always-terminating orchestrator + RAG-first +
+  `SynthesisResult`), `planner.py` (`LocalPlanner` / `ProxyPlanner`) + `multihop.py`
+  (recursive plan-then-execute) + `verify.py` (`ProxyVerifier` backtracking hop),
+  `trace.py` (structured trace + `depth` + token totals by attribution
+  (planner/router/tools/synthesis/verify) and by input/output/reasoning type).
 - `oracle/qa/arag.py` — composes the active toolset, router, and (optional) planner,
   and provides the proxy synthesis.
 - `oracle/api.py` — `/api/chat` carries `enable_online_tools` / `multi_hop` in and the
@@ -363,3 +437,23 @@ bounded orchestrator** rather than `ToolCallingAgent`; and the concluding step i
   `search` step appears first in the trace); the router only escalates to other
   tools when the local result is insufficient. A test asserts the forced search runs
   even when the router would finish immediately.
+- **Planner model is selectable** (`"router"` small local / `"answer"` big model);
+  tests assert `ProxyPlanner` uses the big model and that `planner_model` threads
+  through `/api/chat`. The planner step is **always recorded** (a test covers the
+  atomic-plan case) so planning is visible even for simple questions.
+- **No duplicate work.** An identical `(tool, arguments)` runs **at most once** per
+  question (shared cache; a test asserts it), a **reworded-equivalent** re-query of a
+  tool that already succeeded is treated as a repeat (tests cover the reworded, the
+  rephrase-on-empty, and the genuinely-different cases), and a router re-request of a
+  completed call is shown as a clean *"finishing"* step rather than another call.
+- **`google_search` returns up to 10 results** (a test covers the default and the
+  cap); **`youtube` is offered as a fallback** in the router prompt when the other
+  tools are unhelpful.
+- **Recursion & verification are bounded and terminating.** `max_depth > 1` nests
+  sub-agents (steps carry increasing `depth`); the verification hop backtracks to a
+  corrected answer on contradiction and runs **at most once**. Tests cover nested
+  depth tagging, flat-vs-recursive behaviour, and both verify outcomes (keep / correct).
+- **Budgets & verify are Settings** with explanations (`max_steps`, `max_hops`,
+  `max_depth`, `verify`), threaded through `/api/chat`.
+- **Persistence**: chats and all UI settings survive `Chat ↔ Comparison` navigation
+  and reloads (`sessionStorage`); a saved model choice is kept if still available.

@@ -14,14 +14,18 @@ youtube = importlib.import_module("oracle.tools.youtube")
 
 # --- google_search ------------------------------------------------------------
 
-def test_google_search_returns_five_best(monkeypatch):
+def test_google_search_returns_up_to_ten_best(monkeypatch):
     def fake(query, k):
         return [{"title": f"T{i}", "href": f"http://e/{i}", "body": f"snippet {i}"}
-                for i in range(10)]
+                for i in range(15)]
     monkeypatch.setattr(websearch, "_backend", fake)
-    out = websearch.google_search("who invented radio", k=5)
-    assert out.count("http://e/") == 5           # capped at 5
+    # Default is now 10 results.
+    out = websearch.google_search("who invented radio")
+    assert out.count("http://e/") == 10
     assert "T0" in out and "snippet 0" in out
+    # An explicit smaller k is still honoured; k above 10 is capped at 10.
+    assert websearch.google_search("q", k=3).count("http://e/") == 3
+    assert websearch.google_search("q", k=50).count("http://e/") == 10
 
 
 def test_google_search_edge_cases(monkeypatch):

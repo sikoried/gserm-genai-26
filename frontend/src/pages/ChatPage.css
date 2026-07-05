@@ -31,15 +31,47 @@
 }
 
 .sidebar-chat-item {
-  padding: 10px 10px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 8px 10px 10px;
   margin-bottom: 2px;
   border-radius: 6px;
   cursor: pointer;
   font-size: 0.85rem;
+  transition: background 0.15s;
+}
+
+.sidebar-chat-title {
+  flex: 1;
+  min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  transition: background 0.15s;
+}
+
+.sidebar-chat-delete {
+  flex-shrink: 0;
+  border: none;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 1.1rem;
+  line-height: 1;
+  padding: 0 4px;
+  cursor: pointer;
+  border-radius: 4px;
+  opacity: 0;
+  transition: opacity 0.15s, background 0.15s;
+}
+
+.sidebar-chat-item:hover .sidebar-chat-delete,
+.sidebar-chat-item.active .sidebar-chat-delete {
+  opacity: 1;
+}
+
+.sidebar-chat-delete:hover {
+  background: rgba(255, 255, 255, 0.2);
+  color: #fff;
 }
 
 .sidebar-chat-item:hover {
@@ -375,6 +407,17 @@
   color: var(--hsg-gray-500, #94a3b8);
 }
 
+.modal-section {
+  margin: 14px 0 4px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--hsg-green);
+  border-top: 1px solid var(--hsg-gray-200);
+  padding-top: 10px;
+}
+
 /* ── Agentic trace ── */
 
 .trace-view {
@@ -414,6 +457,12 @@
 }
 
 .trace-kind-planner { background: #ede9fe; color: #5b21b6; }
+.trace-kind-verify { background: #dcfce7; color: #166534; }
+
+.trace-depth {
+  color: var(--hsg-gray-400, #cbd5e1);
+  font-size: 0.72rem;
+}
 
 .trace-table th,
 .trace-table td {

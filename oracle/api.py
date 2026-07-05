@@ -85,6 +85,11 @@ class ChatRequest(BaseModel):
     temperature: float = 0.0
     enable_online_tools: bool = True  # a-rag: allow google_search + youtube (default on)
     multi_hop: bool = True             # a-rag: decompose into sub-questions (default on)
+    planner_model: str = "router"      # a-rag: "router" (small local) | "answer" (big model)
+    max_hops: int = 3                  # a-rag: max sub-questions per planning step
+    max_steps: int = 6                 # a-rag: max tool calls before forced synthesis
+    max_depth: int = 1                 # a-rag: recursive planning levels (1 = flat)
+    verify: bool = True                # a-rag: bounded verification/backtracking hop (default on)
 
 
 class ChatResponse(BaseModel):
@@ -176,7 +181,9 @@ def post_chat(req: ChatRequest) -> ChatResponse:
     config = QAConfig(type=qa_type, model=req.model, endpoint=DEFAULT_ENDPOINT,
                       temperature=req.temperature,
                       enable_online_tools=req.enable_online_tools,
-                      multi_hop=req.multi_hop)
+                      multi_hop=req.multi_hop, planner_model=req.planner_model,
+                      max_hops=req.max_hops, max_steps=req.max_steps,
+                      max_depth=req.max_depth, verify=req.verify)
     try:
         qa = build_qa_system(config)
     except NotImplementedError as exc:  # RAG / a-rag not implemented yet

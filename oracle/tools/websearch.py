@@ -22,20 +22,20 @@ def _backend(query: str, k: int) -> list[dict]:
         return list(ddgs.text(query, max_results=k))
 
 
-def google_search(query: str, k: int = 5) -> str:
+def google_search(query: str, k: int = 10) -> str:
     """Search the web and return the best results as title · url · snippet.
 
     Use for facts unlikely to be in the local wiki index (recent events, niche
-    trivia). Returns up to `k` results (default 5); may be empty. Online tool.
+    trivia). Returns up to `k` results (default 10); may be empty. Online tool.
 
     Args:
         query: What to search the web for.
-        k: Maximum number of results to return (capped at 5).
+        k: Maximum number of results to return (capped at 10).
     """
     q = (query or "").strip()
     if not q:
         return "No query given."
-    k = max(1, min(int(k or 5), 5))
+    k = max(1, min(int(k or 10), 10))
     try:
         results = _backend(q, k) or []
     except Exception as exc:  # network / parse failure must not raise

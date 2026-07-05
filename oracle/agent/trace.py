@@ -15,9 +15,9 @@ from dataclasses import dataclass, field
 
 # Why the loop stopped — surfaced to the user.
 STOP_REASONS = ("done", "step-budget", "timeout", "loop-guard")
-KINDS = ("planner", "router", "tool", "synthesis")
+KINDS = ("planner", "router", "tool", "synthesis", "verify")
 # Kinds whose token cost is produced by an LLM (for attribution / model names).
-_MODEL_KINDS = ("planner", "router", "synthesis")
+_MODEL_KINDS = ("planner", "router", "synthesis", "verify")
 
 
 @dataclass
@@ -33,6 +33,7 @@ class TraceStep:
     elapsed_seconds: float = 0.0
     model_id: str | None = None  # which model produced this step (None for local tools)
     hop: int | None = None       # multi-hop sub-question index (None = top level)
+    depth: int = 0               # recursion depth for nested sub-agents (0 = top level)
 
     @property
     def input_tokens(self) -> int:
@@ -56,6 +57,7 @@ class TraceStep:
             "result": self.result,
             "model_id": self.model_id,
             "hop": self.hop,
+            "depth": self.depth,
             "input_tokens": self.input_tokens,
             "output_tokens": self.output_tokens,
             "reasoning_tokens": self.reasoning_tokens,
@@ -83,14 +85,15 @@ class _Bucket:
 
 @dataclass
 class TokenTotals:
-    """Token counts split by attribution (planner/router/tools/synthesis) and type."""
+    """Token counts split by attribution (planner/router/tools/synthesis/verify) and type."""
     planner: _Bucket = field(default_factory=_Bucket)
     router: _Bucket = field(default_factory=_Bucket)
     tools: _Bucket = field(default_factory=_Bucket)
     synthesis: _Bucket = field(default_factory=_Bucket)
+    verify: _Bucket = field(default_factory=_Bucket)
 
     def _all(self):
-        return (self.planner, self.router, self.tools, self.synthesis)
+        return (self.planner, self.router, self.tools, self.synthesis, self.verify)
 
     @property
     def input_tokens(self) -> int:
@@ -122,6 +125,7 @@ class TokenTotals:
             "router": self.router.to_dict(),
             "tools": self.tools.to_dict(),
             "synthesis": self.synthesis.to_dict(),
+            "verify": self.verify.to_dict(),
             "input_tokens": self.input_tokens,
             "output_tokens": self.output_tokens,
             "reasoning_tokens": self.reasoning_tokens,
@@ -143,7 +147,7 @@ class AgentTrace:
     def totals(self) -> TokenTotals:
         t = TokenTotals()
         buckets = {"planner": t.planner, "router": t.router,
-                   "tools": t.tools, "synthesis": t.synthesis}
+                   "tools": t.tools, "synthesis": t.synthesis, "verify": t.verify}
         for s in self.steps:
             key = "tools" if s.kind == "tool" else s.kind
             b = buckets.get(key)

@@ -30,7 +30,10 @@ class QAConfig(BaseModel):
     agent_timeout_seconds: float = 120.0  # wall-clock budget per question
     enable_online_tools: bool = True  # web (google_search) + youtube tools; on by default
     multi_hop: bool = True  # decompose into sub-questions and answer per hop; on by default
-    max_hops: int = 3  # depth bound for multi-hop planning
+    max_hops: int = 3  # max sub-questions per planning step
+    max_depth: int = 1  # recursive planning levels (1 = flat; >1 = nested sub-agents)
+    planner_model: str = "router"  # who plans hops: "router" (small local) | "answer" (big `model`)
+    verify: bool = True  # run one bounded verification/backtracking hop after answering
     rag_first: bool = True  # always search the local index before other tools
 
     @classmethod

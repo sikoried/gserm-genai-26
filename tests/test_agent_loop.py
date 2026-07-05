@@ -187,6 +187,90 @@ def test_token_accounting_attributes_by_kind_and_type():
     assert res.trace.model_names() == {"router": "router/m", "synthesis": "big/synth"}
 
 
+def test_reworded_equivalent_query_is_treated_as_repeat():
+    # A tool that already returned a useful result, called again with a reworded but
+    # equivalent query, must not run twice (the World Cup 2026 case).
+    runs = []
+
+    def google_search(query="", k=10):
+        runs.append(query)
+        return f"[1] 2026 FIFA World Cup - Wikipedia … {query}"
+
+    router = ScriptedRouter([
+        _call("google_search", {"query": "World Cup 2026 host countries"}),
+        _call("google_search", {"query": "2026 FIFA World Cup host countries"}),
+        _finish(),
+    ])
+    res = run_agent(question="where is the World Cup 2026", history=[], router=router,
+                    tools_by_name={"google_search": google_search}, synthesize=_synth(),
+                    rag_first=False)
+    assert len(runs) == 1  # the near-duplicate re-query did not execute
+    assert res.trace.stop_reason == "loop-guard"
+    assert any("finishing" in s.result for s in res.trace.steps if s.kind == "router")
+
+
+def test_empty_result_allows_a_rephrased_retry():
+    # If the first search returned nothing, a rephrased retry IS allowed.
+    results = ["No results found.", "[1] found it"]
+    calls = []
+
+    def google_search(query="", k=10):
+        calls.append(query)
+        return results[len(calls) - 1]
+
+    router = ScriptedRouter([
+        _call("google_search", {"query": "obscure thing"}),
+        _call("google_search", {"query": "obscure thing detailed"}),
+        _finish(),
+    ])
+    res = run_agent(question="q", history=[], router=router,
+                    tools_by_name={"google_search": google_search}, synthesize=_synth(),
+                    rag_first=False)
+    assert len(calls) == 2  # retry after an empty result is fair game
+
+
+def test_different_queries_to_same_tool_still_allowed():
+    runs = []
+
+    def google_search(query="", k=10):
+        runs.append(query)
+        return f"[1] result for {query}"
+
+    router = ScriptedRouter([
+        _call("google_search", {"query": "capital of France"}),
+        _call("google_search", {"query": "population of Germany"}),
+        _finish(),
+    ])
+    run_agent(question="q", history=[], router=router,
+              tools_by_name={"google_search": google_search}, synthesize=_synth(),
+              rag_first=False)
+    assert runs == ["capital of France", "population of Germany"]  # genuinely different
+
+
+def test_shared_call_cache_dedupes_identical_calls():
+    # The same (tool, args) must run once across runs that share a call_cache
+    # (e.g. multiple multi-hop hops issuing the same search).
+    runs = []
+
+    def search(query=""):
+        runs.append(query)
+        return f"result for {query}"
+
+    cache: dict = {}
+    for _ in range(3):
+        run_agent(question="q", history=[],
+                  router=ScriptedRouter([_call("search", {"query": "same"}), _finish()]),
+                  tools_by_name={"search": search}, synthesize=_synth(),
+                  rag_first=False, call_cache=cache)
+    assert runs == ["same"]  # executed only once; later runs hit the cache
+    # A run that reused the cache marks the step.
+    res = run_agent(question="q", history=[],
+                    router=ScriptedRouter([_call("search", {"query": "same"}), _finish()]),
+                    tools_by_name={"search": search}, synthesize=_synth(),
+                    rag_first=False, call_cache=cache)
+    assert any("cached" in s.result for s in res.trace.steps if s.kind == "tool")
+
+
 def test_local_tools_report_zero_tokens():
     router = ScriptedRouter([_call("echo", {"value": "1"}), _finish()])
     res = run_agent(question="q", history=[], router=router, tools_by_name=_echo_tools(),

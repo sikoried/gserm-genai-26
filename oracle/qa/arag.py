@@ -23,7 +23,10 @@ from ..llm import UsageMetrics, chat_with_metrics, make_client
 from ..models import reasoning_request_kwargs
 from ..retrieval import Embedder, load_retriever
 from .. import tools
-from ..agent import LocalPlanner, LocalRouter, SynthesisResult, run_agent, run_multi_hop
+from ..agent import (
+    LocalPlanner, LocalRouter, ProxyPlanner, ProxyVerifier, SynthesisResult,
+    run_agent, run_multi_hop,
+)
 
 SYNTHESIS_SYSTEM_PROMPT = (
     "You are answering a bar-quiz question. Use the evidence gathered by the tools "
@@ -116,8 +119,20 @@ class AgenticRagQA(QASystem):
         )
         self.planner = None
         if config.multi_hop:
-            self.planner = LocalPlanner(config.router_model, self.router.generate,
-                                        max_hops=config.max_hops)
+            if config.planner_model == "answer":
+                # Delegate planning to the big model chosen in 'Model' — better on hard
+                # questions than the small router.
+                self.planner = ProxyPlanner(
+                    chat_with_metrics, self.client, config.model,
+                    max_hops=config.max_hops, temperature=config.temperature,
+                )
+            else:
+                self.planner = LocalPlanner(config.router_model, self.router.generate,
+                                            max_hops=config.max_hops)
+        self.verifier = None
+        if config.verify:
+            self.verifier = ProxyVerifier(chat_with_metrics, self.client, config.model,
+                                          temperature=config.temperature)
 
     def _synthesize(self, question: str, history: list[dict],
                     observations: list[dict]) -> SynthesisResult:
@@ -149,15 +164,18 @@ class AgenticRagQA(QASystem):
             get_tool_tokens=tools.get_tool_tokens, get_tool_model=tools.get_tool_model,
             max_steps=self.config.max_steps,
             timeout_seconds=self.config.agent_timeout_seconds,
-            rag_first=self.config.rag_first,
+            rag_first=self.config.rag_first, call_cache=self._call_cache,
         )
 
     def _run(self, question: str, history: list[dict]) -> Answer:
+        # One result cache per question, shared across all hops / recursion.
+        self._call_cache: dict = {}
         if self.planner is not None:
             result = run_multi_hop(
                 question=question, history=history, planner=self.planner,
                 run_hop=self._run_hop, synthesize_final=self._synthesize,
-                max_hops=self.config.max_hops,
+                verifier=self.verifier, verify=self.config.verify,
+                max_hops=self.config.max_hops, max_depth=self.config.max_depth,
             )
         else:
             result = self._run_hop(question, history)

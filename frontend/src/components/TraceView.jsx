@@ -14,7 +14,9 @@ function shortModel(id) {
   return id.split("/").pop();
 }
 
-const KIND_LABEL = { planner: "plan", router: "route", tool: "tool", synthesis: "answer" };
+const KIND_LABEL = {
+  planner: "plan", router: "route", tool: "tool", synthesis: "answer", verify: "verify",
+};
 
 export default function TraceView({ trace }) {
   if (!trace) return null;
@@ -55,7 +57,8 @@ export default function TraceView({ trace }) {
             <tr key={s.index} className={`trace-row trace-${s.kind}`}>
               <td>{s.index}</td>
               {multiHop ? <td>{s.hop ?? "—"}</td> : null}
-              <td>
+              <td style={{ paddingLeft: 8 + (s.depth || 0) * 14 }}>
+                {s.depth ? <span className="trace-depth">{"› ".repeat(s.depth)}</span> : null}
                 <span className={`trace-kind trace-kind-${s.kind}`}>
                   {KIND_LABEL[s.kind] || s.kind}
                 </span>
@@ -83,6 +86,7 @@ export default function TraceView({ trace }) {
           <span>router {totals.router?.total?.toLocaleString() ?? 0}</span>
           <span>tools {totals.tools?.total?.toLocaleString() ?? 0}</span>
           <span>synthesis {totals.synthesis?.total?.toLocaleString() ?? 0}</span>
+          {totals.verify?.total ? <span>verify {totals.verify.total.toLocaleString()}</span> : null}
           <span className="trace-grand">
             total {grand.toLocaleString()} — input {(totals.input_tokens ?? 0).toLocaleString()},
             {" "}output {(totals.output_tokens ?? 0).toLocaleString()},

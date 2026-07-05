@@ -58,6 +58,17 @@ def parse_plan(raw: str, question: str, max_hops: int) -> list[str]:
     return [question]
 
 
+def _plan_messages(question: str, history: list[dict], max_hops: int) -> list[dict]:
+    convo = ""
+    if history:
+        convo = "Conversation so far:\n" + "\n".join(
+            f"{m.get('role')}: {m.get('content')}" for m in history) + "\n\n"
+    return [
+        {"role": "system", "content": _SYSTEM.format(max_hops=max_hops)},
+        {"role": "user", "content": f"{convo}Question: {question}\n\nSub-questions as JSON:"},
+    ]
+
+
 class SingleHopPlanner(Planner):
     """Trivial planner: always one hop (the original question)."""
 
@@ -74,16 +85,36 @@ class LocalPlanner(Planner):
         self.max_hops = max_hops
 
     def plan(self, question: str, history: list[dict]) -> PlanResult:
-        convo = ""
-        if history:
-            convo = "Conversation so far:\n" + "\n".join(
-                f"{m.get('role')}: {m.get('content')}" for m in history) + "\n\n"
-        messages = [
-            {"role": "system", "content": _SYSTEM.format(max_hops=self.max_hops)},
-            {"role": "user", "content": f"{convo}Question: {question}\n\nSub-questions as JSON:"},
-        ]
+        messages = _plan_messages(question, history, self.max_hops)
         text, ptok, ctok = self._generate(messages)
         return PlanResult(
             subquestions=parse_plan(text, question, self.max_hops),
             prompt_tokens=ptok, completion_tokens=ctok, model_id=self.model_id, raw=text,
+        )
+
+
+class ProxyPlanner(Planner):
+    """Plan with a big proxy model (the one chosen in 'Model') for harder questions.
+
+    The small local router is weak at decomposing difficult questions, so the user
+    can delegate planning to the large answering model. ``chat`` returns
+    (content, UsageMetrics); token cost is attributed to the planner in the trace.
+    """
+
+    def __init__(self, chat_with_metrics, client, model_id: str, *,
+                 max_hops: int = 3, temperature: float = 0.0):
+        self._chat = chat_with_metrics
+        self._client = client
+        self.model_id = model_id
+        self.max_hops = max_hops
+        self.temperature = temperature
+
+    def plan(self, question: str, history: list[dict]) -> PlanResult:
+        messages = _plan_messages(question, history, self.max_hops)
+        content, metrics = self._chat(self._client, self.model_id, messages,
+                                      temperature=self.temperature)
+        return PlanResult(
+            subquestions=parse_plan(content, question, self.max_hops),
+            prompt_tokens=metrics.prompt_tokens, completion_tokens=metrics.completion_tokens,
+            reasoning_tokens=metrics.reasoning_tokens, model_id=self.model_id, raw=content,
         )

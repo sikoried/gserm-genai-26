@@ -121,20 +121,28 @@ def test_chat_threads_online_and_multihop_flags_into_config(monkeypatch):
         def __init__(self, cfg):
             seen["online"] = cfg.enable_online_tools
             seen["multi_hop"] = cfg.multi_hop
+            seen["planner"] = cfg.planner_model
+            seen["max_hops"] = cfg.max_hops
+            seen["max_steps"] = cfg.max_steps
+            seen["max_depth"] = cfg.max_depth
+            seen["verify"] = cfg.verify
 
         def answer_chat(self, conversation):
             return Answer(content="ok", metrics=UsageMetrics(1, 1, 2, 0.1))
 
     monkeypatch.setattr(api, "build_qa_system", lambda cfg: _FakeQA(cfg))
-    # Explicitly turning them off threads through.
+    # Explicit values thread through.
     client.post("/api/chat", json={
         "question": "q", "mode": "Agentic RAG",
-        "enable_online_tools": False, "multi_hop": False,
+        "enable_online_tools": False, "multi_hop": False, "planner_model": "answer",
+        "max_hops": 5, "max_steps": 9, "max_depth": 2, "verify": True,
     })
-    assert seen == {"online": False, "multi_hop": False}
-    # Omitting them uses the new on-by-default behaviour.
+    assert seen == {"online": False, "multi_hop": False, "planner": "answer",
+                    "max_hops": 5, "max_steps": 9, "max_depth": 2, "verify": True}
+    # Omitting them uses the defaults.
     client.post("/api/chat", json={"question": "q", "mode": "Agentic RAG"})
-    assert seen == {"online": True, "multi_hop": True}
+    assert seen == {"online": True, "multi_hop": True, "planner": "router",
+                    "max_hops": 3, "max_steps": 6, "max_depth": 1, "verify": True}
 
 
 def test_chat_agentic_carries_structured_trace(monkeypatch):

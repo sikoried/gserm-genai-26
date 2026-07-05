@@ -19,6 +19,7 @@ step records which model produced it and its input/output/reasoning tokens.
 from __future__ import annotations
 
 import json
+import re
 import time
 from dataclasses import dataclass
 from typing import Callable
@@ -57,6 +58,30 @@ def _key(tool: str, arguments: dict | None) -> str:
     return tool + "|" + json.dumps(arguments or {}, sort_keys=True, default=str)
 
 
+def _arg_tokens(arguments: dict | None) -> frozenset:
+    """Word tokens from a call's string arguments (for near-duplicate detection)."""
+    text = " ".join(str(v) for v in (arguments or {}).values() if isinstance(v, str))
+    return frozenset(re.findall(r"[a-z0-9]+", text.lower()))
+
+
+def _similar(a: frozenset, b: frozenset, threshold: float = 0.6) -> bool:
+    """True if two token sets overlap heavily (Jaccard ≥ threshold)."""
+    if not a or not b:
+        return a == b
+    return len(a & b) / len(a | b) >= threshold
+
+
+_EMPTY_PREFIXES = ("no results", "no videos", "no article", "no query", "no expression",
+                   "no candidates", "no title", "tool error", "unknown ")
+
+
+def _is_empty(result: str) -> bool:
+    """A tool result that carries no usable answer (so a rephrased retry is fair)."""
+    t = (result or "").strip().lower()
+    return (not t or "unavailable" in t or "no internet" in t
+            or t.startswith(_EMPTY_PREFIXES))
+
+
 def run_agent(
     *,
     question: str,
@@ -70,6 +95,7 @@ def run_agent(
     max_steps: int = 6,
     timeout_seconds: float = 120.0,
     rag_first: bool = True,
+    call_cache: dict | None = None,
     clock: Callable[[], float] = time.perf_counter,
 ) -> AgentResult:
     history = history or []
@@ -77,12 +103,33 @@ def run_agent(
     observations: list[dict] = []
     seen_calls: set[str] = set()
     seen_results: set[str] = set()
+    # Query token-sets already tried per tool that RETURNED a useful result, so a
+    # reworded but equivalent re-query (e.g. two web searches for the same thing) is
+    # caught even when the wording differs.
+    productive_queries: dict[str, list[frozenset]] = {}
     start = clock()
     stop_reason = "done"
     idx = 0
 
+    def _record_query(name: str, arguments: dict, result: str) -> None:
+        if not _is_empty(result):
+            productive_queries.setdefault(name, []).append(_arg_tokens(arguments))
+
+    def _is_redundant(name: str, arguments: dict) -> bool:
+        tokens = _arg_tokens(arguments)
+        return any(_similar(tokens, prev) for prev in productive_queries.get(name, []))
+
     def _run_tool(name: str, arguments: dict) -> tuple[str, "TraceStep"]:
         nonlocal idx
+        key = _key(name, arguments)
+        # Shared result cache: never execute the same (tool, args) twice within one
+        # question (e.g. across multi-hop hops) — reuse the earlier result.
+        if call_cache is not None and key in call_cache:
+            out = call_cache[key]
+            step = TraceStep(index=idx, kind="tool", tool=name, arguments=arguments,
+                             result=_short(out) + "  (cached)", model_id=None)
+            idx += 1
+            return out, step
         reset_tool_tokens()
         t0 = clock()
         try:
@@ -95,6 +142,8 @@ def run_agent(
                          reasoning_tokens=r, elapsed_seconds=clock() - t0,
                          model_id=get_tool_model())
         idx += 1
+        if call_cache is not None:
+            call_cache[key] = out
         return out, step
 
     # RAG-first: always consult the local index before the router picks tools, so the
@@ -106,6 +155,7 @@ def run_agent(
         observations.append({"tool": "search", "arguments": args, "result": result})
         seen_calls.add(_key("search", args))
         seen_results.add(_short(result, 400))
+        _record_query("search", args, result)
 
     while True:
         if clock() - start > timeout_seconds:
@@ -116,10 +166,19 @@ def run_agent(
             break
 
         decision = router.decide(question, history, observations)
+
+        # The small router often re-requests a call it just made — exactly, or with a
+        # reworded-but-equivalent query for a tool that already returned a useful
+        # result. Both are no-ops: record it (so its tokens count) but as a clear
+        # "finishing" step, not as another tool call, and stop cleanly.
+        is_repeat = (not decision.finished and decision.tool in tools_by_name
+                     and (_key(decision.tool, decision.arguments) in seen_calls
+                          or _is_redundant(decision.tool, decision.arguments)))
         trace.add(TraceStep(
-            index=idx, kind="router", tool=decision.tool,
-            arguments=decision.arguments,
-            result="finish" if decision.finished else f"call {decision.tool}",
+            index=idx, kind="router", tool=None if is_repeat else decision.tool,
+            arguments=None if is_repeat else decision.arguments,
+            result=(f"already ran {decision.tool} — finishing" if is_repeat
+                    else ("finish" if decision.finished else f"call {decision.tool}")),
             prompt_tokens=decision.prompt_tokens,
             completion_tokens=decision.completion_tokens,
             reasoning_tokens=decision.reasoning_tokens,
@@ -127,6 +186,9 @@ def run_agent(
         ))
         idx += 1
 
+        if is_repeat:
+            stop_reason = "loop-guard"
+            break
         if decision.finished or not decision.tool:
             stop_reason = "done"
             break
@@ -139,15 +201,13 @@ def run_agent(
             continue
 
         call_key = _key(decision.tool, decision.arguments)
-        if call_key in seen_calls:
-            stop_reason = "loop-guard"
-            break
         seen_calls.add(call_key)
 
         result, step = _run_tool(decision.tool, decision.arguments or {})
         trace.add(step)
         observations.append({"tool": decision.tool, "arguments": decision.arguments,
                              "result": result})
+        _record_query(decision.tool, decision.arguments or {}, result)
 
         norm = _short(result, 400)
         if norm in seen_results:
