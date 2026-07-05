@@ -31,6 +31,7 @@ class QAConfig(BaseModel):
     enable_online_tools: bool = True  # web (google_search) + youtube tools; on by default
     multi_hop: bool = True  # decompose into sub-questions and answer per hop; on by default
     max_hops: int = 3  # depth bound for multi-hop planning
+    rag_first: bool = True  # always search the local index before other tools
 
     @classmethod
     def from_yaml(cls, path: str | Path) -> "QAConfig":

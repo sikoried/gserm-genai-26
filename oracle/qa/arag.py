@@ -149,6 +149,7 @@ class AgenticRagQA(QASystem):
             get_tool_tokens=tools.get_tool_tokens, get_tool_model=tools.get_tool_model,
             max_steps=self.config.max_steps,
             timeout_seconds=self.config.agent_timeout_seconds,
+            rag_first=self.config.rag_first,
         )
 
     def _run(self, question: str, history: list[dict]) -> Answer:

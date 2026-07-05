@@ -145,6 +145,63 @@
   cursor: pointer;
 }
 
+.topbar-info-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.topbar-info {
+  margin-left: 2px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--hsg-gray-500);
+  font-size: 0.95rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.topbar-info:hover,
+.topbar-info:focus,
+.topbar-info[aria-expanded="true"] {
+  color: var(--hsg-green);
+  outline: none;
+}
+
+.info-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+}
+
+.info-popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 50;
+  width: 320px;
+  max-width: 80vw;
+  background: var(--hsg-white);
+  border: 1px solid var(--hsg-gray-200);
+  border-radius: 8px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.14);
+  padding: 12px 14px;
+  font-size: 0.8rem;
+  line-height: 1.5;
+  color: var(--hsg-gray-700);
+  text-transform: none;
+  letter-spacing: normal;
+  font-weight: 400;
+}
+
+.info-popover p {
+  margin: 0 0 8px;
+}
+
+.info-popover p:last-child {
+  margin-bottom: 0;
+}
+
 .topbar select {
   padding: 6px 12px;
   border: 1px solid var(--hsg-gray-300);

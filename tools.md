@@ -143,6 +143,23 @@ guidance on when to prefer `google_search` (current/after-cutoff facts) or `yout
   router refuses a known model whose estimated footprint exceeds it, so a too-large
   model is caught early rather than OOM-ing mid-run.
 
+### RAG-first
+
+The agent must **always consult the local RAG index first**, and reach for other
+tools only when that isn't good enough — so answers stay grounded in the corpus and
+the cheaper/offline path is tried before the web.
+
+- **Forced first step.** Before the router picks anything, the orchestrator runs one
+  local `search` on the question and adds its result to the observations (recorded as
+  a normal `tool` step in the trace). *As built,* controlled by `rag_first` (default
+  **true**); a no-op if the toolset has no `search`. In multi-hop, each hop searches
+  the index first.
+- **Escalate only if needed.** The router then sees the RAG result and is instructed
+  to **finish immediately if it already answers the question**, and to call another
+  tool (`google_search`, `youtube`, calculator, …) **only** if the local result is
+  missing, irrelevant, or insufficient. This keeps the local index as the default
+  source and the other tools as fallbacks.
+
 ## Traceability & Token Accounting
 
 The Oracle user must be able to **see what the agent did and what it cost**, per
@@ -253,13 +270,23 @@ As-built configuration (`oracle/config.py`, per QA-system config / `QAConfig`):
 - **Termination:** `max_steps` (default 6), `agent_timeout_seconds` (default 120).
 - **Online tools:** `enable_online_tools` (default **true**).
 - **Multi-hop:** `multi_hop` (default **true**), `max_hops` (default 3).
+- **RAG-first:** `rag_first` (default **true**) — force a local index search before
+  other tools.
 
 GUI placement:
 
 - **Multi-hop planning** is a **per-question toggle in the chat itself** (next to the
   input / mode selector, not buried in Settings), so the user chooses hop-by-hop
   whether to plan. It is **on by default** and shown **only in `Agentic RAG` mode**
-  (hidden/disabled for World and RAG, where it has no effect).
+  (hidden/disabled for World and RAG, where it has no effect). The toggle carries a
+  short **explanation** (tooltip / info affordance) making the difference clear:
+  - **ON** — the question is broken into a chain of sub-questions, each answered in
+    turn with the previous answer fed into the next; best for questions that depend
+    on an intermediate fact (e.g. *"In which country was the director of the
+    highest-grossing 1997 film born?"*).
+  - **OFF (single-hop)** — the question is answered in one pass with direct tool
+    calls; faster, and best for simple, self-contained questions (e.g. *"What is the
+    capital of France?"*).
 - **Web + YouTube tools** stay a setting (`enable_online_tools`), now **on by
   default**; expose it wherever settings live so a user can turn the network off for
   a deliberately offline run.
@@ -329,5 +356,10 @@ bounded orchestrator** rather than `ToolCallingAgent`; and the concluding step i
   terminates, and the final answer tells the user the web/YouTube lookup could not be
   performed. A test simulates a network failure and asserts graceful handling.
 - **Multi-hop is a per-question chat toggle**, on by default, shown **only in
-  `Agentic RAG` mode**; a test asserts the chosen value is threaded through
-  `/api/chat` per request.
+  `Agentic RAG` mode**, with a tooltip/info affordance explaining the ON vs OFF
+  behaviour; a test asserts the chosen value is threaded through `/api/chat` per
+  request.
+- **RAG-first**: the local index is searched before any other tool (a forced
+  `search` step appears first in the trace); the router only escalates to other
+  tools when the local result is insufficient. A test asserts the forced search runs
+  even when the router would finish immediately.

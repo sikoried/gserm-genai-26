@@ -71,6 +71,40 @@ def test_done_when_router_finishes_immediately():
     assert [s.kind for s in res.trace.steps] == ["router", "synthesis"]
 
 
+def test_rag_first_forces_a_local_search_before_the_router():
+    calls = []
+
+    def search(query=""):
+        calls.append(query)
+        return f"local hit for {query}"
+
+    # Router finishes immediately; the forced RAG search must still have run first.
+    res = run_agent(question="capital of France?", history=[],
+                    router=ScriptedRouter([_finish()]),
+                    tools_by_name={"search": search}, synthesize=_synth(),
+                    rag_first=True)
+    assert calls == ["capital of France?"]
+    kinds = [s.kind for s in res.trace.steps]
+    assert kinds[0] == "tool" and res.trace.steps[0].tool == "search"
+    assert kinds == ["tool", "router", "synthesis"]
+
+
+def test_rag_first_can_be_disabled():
+    calls = []
+    res = run_agent(question="q", history=[], router=ScriptedRouter([_finish()]),
+                    tools_by_name={"search": lambda query="": calls.append(query) or "x"},
+                    synthesize=_synth(), rag_first=False)
+    assert calls == []  # no forced search
+    assert [s.kind for s in res.trace.steps] == ["router", "synthesis"]
+
+
+def test_rag_first_no_op_when_no_search_tool():
+    # rag_first is harmless when the toolset has no `search` (e.g. minimal setups).
+    res = run_agent(question="q", history=[], router=ScriptedRouter([_finish()]),
+                    tools_by_name=_echo_tools(), synthesize=_synth(), rag_first=True)
+    assert [s.kind for s in res.trace.steps] == ["router", "synthesis"]
+
+
 def test_step_budget_forces_synthesis():
     router = ScriptedRouter([_call("echo", {"value": str(i)}) for i in range(10)])
     res = run_agent(question="q", history=[], router=router,

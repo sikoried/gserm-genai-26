@@ -69,6 +69,7 @@ def run_agent(
     get_tool_model: Callable[[], "str | None"] = lambda: None,
     max_steps: int = 6,
     timeout_seconds: float = 120.0,
+    rag_first: bool = True,
     clock: Callable[[], float] = time.perf_counter,
 ) -> AgentResult:
     history = history or []
@@ -79,6 +80,32 @@ def run_agent(
     start = clock()
     stop_reason = "done"
     idx = 0
+
+    def _run_tool(name: str, arguments: dict) -> tuple[str, "TraceStep"]:
+        nonlocal idx
+        reset_tool_tokens()
+        t0 = clock()
+        try:
+            out = str(tools_by_name[name](**(arguments or {})))
+        except Exception as exc:  # a tool blowing up must not kill the answer
+            out = f"Tool error: {exc}"
+        p, c, r = get_tool_tokens()
+        step = TraceStep(index=idx, kind="tool", tool=name, arguments=arguments,
+                         result=_short(out), prompt_tokens=p, completion_tokens=c,
+                         reasoning_tokens=r, elapsed_seconds=clock() - t0,
+                         model_id=get_tool_model())
+        idx += 1
+        return out, step
+
+    # RAG-first: always consult the local index before the router picks tools, so the
+    # agent grounds on the corpus and only reaches for other tools if it's not enough.
+    if rag_first and "search" in tools_by_name:
+        args = {"query": question}
+        result, step = _run_tool("search", args)
+        trace.add(step)
+        observations.append({"tool": "search", "arguments": args, "result": result})
+        seen_calls.add(_key("search", args))
+        seen_results.add(_short(result, 400))
 
     while True:
         if clock() - start > timeout_seconds:
@@ -117,21 +144,8 @@ def run_agent(
             break
         seen_calls.add(call_key)
 
-        reset_tool_tokens()
-        t0 = clock()
-        try:
-            result = str(tools_by_name[decision.tool](**(decision.arguments or {})))
-        except Exception as exc:  # a tool blowing up must not kill the answer
-            result = f"Tool error: {exc}"
-        elapsed = clock() - t0
-        ptok, ctok, rtok = get_tool_tokens()
-
-        trace.add(TraceStep(
-            index=idx, kind="tool", tool=decision.tool, arguments=decision.arguments,
-            result=_short(result), prompt_tokens=ptok, completion_tokens=ctok,
-            reasoning_tokens=rtok, elapsed_seconds=elapsed, model_id=get_tool_model(),
-        ))
-        idx += 1
+        result, step = _run_tool(decision.tool, decision.arguments or {})
+        trace.add(step)
         observations.append({"tool": decision.tool, "arguments": decision.arguments,
                              "result": result})
 

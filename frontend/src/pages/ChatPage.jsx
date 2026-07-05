@@ -17,6 +17,7 @@ export default function ChatPage() {
   const [temperature, setTemperature] = useState("0.0");
   const [enableOnline, setEnableOnline] = useState(true);
   const [multiHop, setMultiHop] = useState(true);
+  const [hopInfoOpen, setHopInfoOpen] = useState(false);
   const chatEndRef = useRef(null);
   const textareaRef = useRef(null);
   const nextId = useRef(2);
@@ -173,7 +174,7 @@ export default function ChatPage() {
           </div>
           {isAgentic && (
             <div className="topbar-group">
-              <label className="topbar-toggle" title="Break complex questions into sub-questions and answer each hop">
+              <label className="topbar-toggle">
                 <input
                   type="checkbox"
                   checked={multiHop}
@@ -181,6 +182,37 @@ export default function ChatPage() {
                 />
                 Multi-hop
               </label>
+              <div className="topbar-info-wrap">
+                <button
+                  type="button"
+                  className="topbar-info"
+                  aria-label="What is multi-hop?"
+                  aria-expanded={hopInfoOpen}
+                  onClick={() => setHopInfoOpen((v) => !v)}
+                >
+                  ⓘ
+                </button>
+                {hopInfoOpen && (
+                  <>
+                    <div className="info-backdrop" onClick={() => setHopInfoOpen(false)} />
+                    <div className="info-popover" role="dialog">
+                      <p>
+                        <b>Multi-hop ON</b> — the question is broken into a chain of
+                        sub-questions, each answered in turn with the previous answer
+                        fed into the next. Best when the answer depends on an
+                        intermediate fact, e.g. <i>"In which country was the director
+                        of the highest-grossing 1997 film born?"</i>
+                      </p>
+                      <p>
+                        <b>Multi-hop OFF</b> (single-hop) — the question is answered in
+                        one pass with direct tool calls. Faster, and best for simple,
+                        self-contained questions, e.g. <i>"What is the capital of
+                        France?"</i>
+                      </p>
+                    </div>
+                  </>
+                )}
+              </div>
             </div>
           )}
         </div>

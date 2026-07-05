@@ -73,6 +73,11 @@ _SYSTEM = (
     '  {"tool": "<name>", "arguments": {...}}  to call a tool, or\n'
     '  {"finished": true}                      when enough is known to answer.\n'
     "Guidance:\n"
+    "- A local knowledge-base `search` has usually ALREADY been run for you and its "
+    "result is under 'Tools used so far'. If that result already answers the question, "
+    "reply {\"finished\": true} — do not call more tools.\n"
+    "- Only if the local result is missing, irrelevant, or not good enough should you "
+    "call another tool.\n"
     "- Use `search`/`wiki_lookup` for encyclopedic facts.\n"
     "- Use `google_search` for current, recent, or after-the-cutoff facts (news, "
     "'latest', 'current', prices, standings) that a static encyclopedia would miss.\n"
