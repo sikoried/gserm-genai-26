@@ -29,8 +29,25 @@ def test_google_search_edge_cases(monkeypatch):
     monkeypatch.setattr(websearch, "_backend", lambda q, k: [])
     assert websearch.google_search("nothing") == "No results found."
     monkeypatch.setattr(websearch, "_backend",
-                        lambda q, k: (_ for _ in ()).throw(RuntimeError("net down")))
+                        lambda q, k: (_ for _ in ()).throw(RuntimeError("parse error")))
     assert "Web search failed" in websearch.google_search("boom")
+
+
+def test_google_search_offline_is_graceful(monkeypatch):
+    # No internet must not crash — return a clear "no internet" observation.
+    def offline(q, k):
+        raise ConnectionError("Failed to resolve 'duckduckgo.com' (getaddrinfo failed)")
+    monkeypatch.setattr(websearch, "_backend", offline)
+    out = websearch.google_search("who is the current CEO of OpenAI")
+    assert "No internet connection" in out and "web search unavailable" in out
+
+
+def test_youtube_offline_is_graceful(monkeypatch):
+    def offline(q, k):
+        raise TimeoutError("connection timed out")
+    monkeypatch.setattr(youtube, "_search_backend", offline)
+    out = youtube.youtube("mark rober mousetrap")
+    assert "No internet connection" in out and "YouTube search unavailable" in out
 
 
 # --- youtube ------------------------------------------------------------------

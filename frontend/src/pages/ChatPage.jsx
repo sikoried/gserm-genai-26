@@ -15,8 +15,8 @@ export default function ChatPage() {
   const [elapsed, setElapsed] = useState(0);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [temperature, setTemperature] = useState("0.0");
-  const [enableOnline, setEnableOnline] = useState(false);
-  const [multiHop, setMultiHop] = useState(false);
+  const [enableOnline, setEnableOnline] = useState(true);
+  const [multiHop, setMultiHop] = useState(true);
   const chatEndRef = useRef(null);
   const textareaRef = useRef(null);
   const nextId = useRef(2);
@@ -171,6 +171,18 @@ export default function ChatPage() {
               ))}
             </select>
           </div>
+          {isAgentic && (
+            <div className="topbar-group">
+              <label className="topbar-toggle" title="Break complex questions into sub-questions and answer each hop">
+                <input
+                  type="checkbox"
+                  checked={multiHop}
+                  onChange={(e) => setMultiHop(e.target.checked)}
+                />
+                Multi-hop
+              </label>
+            </div>
+          )}
         </div>
 
         <div className="chat-window">
@@ -262,21 +274,8 @@ export default function ChatPage() {
                 Web + YouTube tools (Agentic RAG)
               </label>
               <span className="modal-hint">
-                Lets the agent use google_search and youtube for current/video facts.
-              </span>
-            </div>
-
-            <div className="modal-field modal-field-check">
-              <label>
-                <input
-                  type="checkbox"
-                  checked={multiHop}
-                  onChange={(e) => setMultiHop(e.target.checked)}
-                />
-                Multi-hop planning (Agentic RAG)
-              </label>
-              <span className="modal-hint">
-                Breaks complex questions into sub-questions. Slower, but handles chained lookups.
+                On by default. Lets the agent use google_search and youtube for
+                current/video facts. Turn off for a deliberately offline run.
               </span>
             </div>
 

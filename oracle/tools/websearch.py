@@ -10,6 +10,8 @@ network-free.
 """
 from __future__ import annotations
 
+from .net import is_offline_error, offline_message
+
 _MAX_SNIPPET = 240
 
 
@@ -37,6 +39,8 @@ def google_search(query: str, k: int = 5) -> str:
     try:
         results = _backend(q, k) or []
     except Exception as exc:  # network / parse failure must not raise
+        if is_offline_error(exc):
+            return offline_message("web search")
         return f"Web search failed: {exc}"
     if not results:
         return "No results found."

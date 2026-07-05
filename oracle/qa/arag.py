@@ -29,7 +29,10 @@ SYNTHESIS_SYSTEM_PROMPT = (
     "You are answering a bar-quiz question. Use the evidence gathered by the tools "
     "below, plus your own knowledge, to give a SHORT, exact answer (a name, number, "
     "year, or phrase) — not an essay. If the evidence is empty or unhelpful, answer "
-    "from your own knowledge; if you genuinely cannot determine it, say so briefly."
+    "from your own knowledge; if you genuinely cannot determine it, say so briefly. "
+    "If a tool result says the web or YouTube lookup was unavailable (e.g. 'No "
+    "internet connection'), briefly tell the user that the online lookup could not be "
+    "performed, then answer from your own knowledge as best you can."
 )
 
 

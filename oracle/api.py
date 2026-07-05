@@ -83,8 +83,8 @@ class ChatRequest(BaseModel):
     mode: str = "World"  # World | RAG | Agentic RAG
     model: str = QAConfig().model
     temperature: float = 0.0
-    enable_online_tools: bool = False  # a-rag: allow google_search + youtube
-    multi_hop: bool = False            # a-rag: decompose into sub-questions
+    enable_online_tools: bool = True  # a-rag: allow google_search + youtube (default on)
+    multi_hop: bool = True             # a-rag: decompose into sub-questions (default on)
 
 
 class ChatResponse(BaseModel):

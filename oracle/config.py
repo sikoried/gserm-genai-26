@@ -28,8 +28,8 @@ class QAConfig(BaseModel):
     router_max_gb: float = 6.0  # memory ceiling guardrail for the router model
     max_steps: int = 6  # hard cap on tool calls before forced synthesis
     agent_timeout_seconds: float = 120.0  # wall-clock budget per question
-    enable_online_tools: bool = False  # opt-in web (google_search) + youtube tools
-    multi_hop: bool = False  # decompose into sub-questions and answer per hop
+    enable_online_tools: bool = True  # web (google_search) + youtube tools; on by default
+    multi_hop: bool = True  # decompose into sub-questions and answer per hop; on by default
     max_hops: int = 3  # depth bound for multi-hop planning
 
     @classmethod

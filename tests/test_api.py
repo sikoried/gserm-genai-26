@@ -126,11 +126,14 @@ def test_chat_threads_online_and_multihop_flags_into_config(monkeypatch):
             return Answer(content="ok", metrics=UsageMetrics(1, 1, 2, 0.1))
 
     monkeypatch.setattr(api, "build_qa_system", lambda cfg: _FakeQA(cfg))
-    resp = client.post("/api/chat", json={
-        "question": "latest news?", "mode": "Agentic RAG",
-        "enable_online_tools": True, "multi_hop": True,
+    # Explicitly turning them off threads through.
+    client.post("/api/chat", json={
+        "question": "q", "mode": "Agentic RAG",
+        "enable_online_tools": False, "multi_hop": False,
     })
-    assert resp.status_code == 200
+    assert seen == {"online": False, "multi_hop": False}
+    # Omitting them uses the new on-by-default behaviour.
+    client.post("/api/chat", json={"question": "q", "mode": "Agentic RAG"})
     assert seen == {"online": True, "multi_hop": True}
 
 

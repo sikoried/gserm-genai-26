@@ -11,6 +11,8 @@ call can be token-heavy, so results and transcript length are capped.
 """
 from __future__ import annotations
 
+from .net import is_offline_error, offline_message
+
 _MAX_TRANSCRIPT_CHARS = 800
 
 
@@ -71,6 +73,8 @@ def youtube(query: str, k: int = 5) -> str:
     try:
         videos = _search_backend(q, k) or []
     except Exception as exc:
+        if is_offline_error(exc):
+            return offline_message("YouTube search")
         return f"YouTube search failed: {exc}"
     if not videos:
         return "No videos found."
