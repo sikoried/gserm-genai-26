@@ -7,6 +7,13 @@ This feature extends the **agentic-RAG** QA type with a richer toolbox so the ag
 can answer **bar / pub quiz questions** — short, factual trivia spanning many
 domains (geography, history, science, sports, music, film, dates, simple maths).
 
+> **Status: implemented.** Everything below is built. Where the delivered design
+> deviates from the original intent it is called out inline (e.g. the online tools
+> are keyless open-source rather than key-gated, and the local router drives a
+> custom bounded orchestrator rather than smolagents' `ToolCallingAgent`). See
+> **Configuration & GUI** and **Implementation notes** at the end for the as-built
+> details (module map, config keys, defaults).
+
 ## Goal
 
 Give the agent a set of focused tools and let a **small, fast LLM act as the
@@ -16,12 +23,16 @@ model keeps tool selection cheap and quick.
 
 ## Technical Considerations
 
-- Built on the **`smolagents`** toolkit from Hugging Face (already used for the
-  agentic system); each tool is a module-level `@tool` function in the `tools`
-  package, sharing state via `tools/runtime.py`.
-- **Routing model:** a small LLM, **run locally**, is wired as the agent's
-  reasoning/tool-calling model and decides which tool to invoke when. The large
-  answering model stays configurable and separate. See **Routing Model** below.
+- Built on the **`smolagents`** toolkit from Hugging Face: each tool is a plain,
+  unit-testable function wrapped as a smolagents `Tool` in `oracle/tools/__init__.py`
+  (exposing its name / description / arg schema to the router), sharing state via
+  `tools/runtime.py`. *As built,* the tools run under a **custom bounded orchestrator**
+  (`oracle/agent/loop.py`) rather than smolagents' `ToolCallingAgent`, because the
+  termination guarantees, per-step token attribution and proxy synthesis need
+  explicit control the opaque agent loop doesn't expose.
+- **Routing model:** a small LLM, **run locally**, decides which tool to invoke
+  when; the large answering model stays configurable and separate and is used only
+  for the final synthesis. See **Routing Model** below.
 - Each tool is **single-purpose**, has a clear docstring (smolagents exposes it to
   the router), validates its arguments, and returns a short string — never raises
   for "no result"; it returns an explicit empty/`"No result."` message instead.
@@ -59,57 +70,68 @@ New tools to add for quiz answering:
   `search`), for "what is the capital of…", "who wrote…" style direct lookups.
 - **`list_pick` / `compare`** — given a small set of candidates, return the one
   matching a criterion (largest, earliest, etc.) for "which of these…" questions.
-- **`final_answer`** *(smolagents built-in)* — return the concise answer; quiz
-  answers should be **short and exact** (a name, number, year), not an essay.
+- **Final answer** — *as built,* not a tool but a single **proxy synthesis** step
+  over the gathered evidence (see Termination). Quiz answers should be **short and
+  exact** (a name, number, year), not an essay — the synthesis prompt enforces this.
 
-### Online tools (network — optional, key-gated)
+### Online tools (network — optional, opt-in)
 
-These reach the public internet, so they are **opt-in**: clearly marked as online,
-disabled unless configured, and gated behind an API key / setting so an offline run
-never calls out. Each still obeys the tool contract (returns a short string, never
-raises on "no result"), and each network round-trip is recorded in the trace.
+These reach the public internet, so they are **opt-in**: clearly marked as online
+and **disabled by default**. *As built,* they use **cost-free, keyless open-source
+methods** (no API key, no paid service) and are gated by a config setting /
+GUI toggle (`enable_online_tools`) rather than an API key, so an offline run never
+calls out. Each obeys the tool contract (returns a short string, never raises on
+"no result" or a network error), and each round-trip is recorded in the trace; the
+backend HTTP call is isolated in an injectable function so tests mock it and stay
+network-free.
 
-- **`google_search`** — run a web search for the query and return the **5 best
-  results**, each as `title · url · snippet`. Use a search API (e.g. a
-  SerpAPI / Programmable Search style backend); the key/endpoint come from config.
-  Bound results to 5 and truncate snippets so the router prompt stays small.
-- **`youtube`** — find the **5 best matching videos** for the query, then **extract
-  the information needed to answer** from them: pull each video's transcript /
-  captions (and title + description as fallback) and return a compact,
-  answer-oriented digest the synthesizer can read the answer out of — not just
-  links. Prefer transcript text; note when captions are unavailable. Cap at 5
-  videos and cap transcript length per video so token cost stays bounded.
+- **`google_search`** — web search returning the **5 best results**, each as
+  `title · url · snippet`. *As built,* backed by **DuckDuckGo** via the cost-free
+  `ddgs` library (no key). Results are capped at 5 and snippets truncated so the
+  router prompt stays small. (`oracle/tools/websearch.py`.)
+- **`youtube`** — find the **5 best matching videos** and **extract the information
+  needed to answer** from them: pull each video's transcript/captions (title +
+  description as fallback) and return a compact, answer-oriented digest the
+  synthesizer can read the answer out of — not just links. *As built,* video search
+  uses **`yt-dlp`** (`ytsearchN:`, metadata only — nothing is downloaded) and
+  transcripts use **`youtube-transcript-api`**; both are keyless/open-source.
+  Capped at 5 videos with a per-video transcript-length cap so token cost stays
+  bounded. (`oracle/tools/youtube.py`.)
 
-Because both are token-heavy (search snippets, long transcripts), they must feed
-the **token accounting** above and respect the **step budget / timeout**; a single
-`youtube` call can dominate cost, so document its expected footprint.
+Both are token-light for the tools themselves (no LLM call → 0 tokens), but they
+feed large text into the synthesizer, so they respect the **step budget / timeout**
+and their cost shows up in the synthesis step of the **token accounting** above.
 
 ## Routing Model (local, small LLM)
 
 The tool router must run **locally** — no proxy call for the routing decision — so
-selection stays cheap and private. It is wired into the smolagents agent as the
-reasoning/tool-calling model (e.g. via `TransformersModel`, which loads a Hugging
-Face model in-process), while the large proxy model is kept for final answer
-synthesis.
+selection stays cheap and private, while the large proxy model is kept for final
+answer synthesis. *As built* (`oracle/agent/router.py`): a small Hugging Face
+instruct model is loaded in-process via `transformers` and prompted to emit a
+**JSON decision** (`{"tool": …, "arguments": …}` or `{"finished": true}`), which the
+orchestrator executes — a structured-JSON router rather than smolagents'
+`TransformersModel` tool-calling, chosen for deterministic control and clean token
+counts. The router prompt lists the active tools' descriptions plus explicit
+guidance on when to prefer `google_search` (current/after-cutoff facts) or `youtube`
+(video-content questions) vs. the local `search`/`wiki_lookup`.
 
-- **Model choice:** any Hugging Face instruct model that supports tool/function
-  calling and **fits in local memory**. Default to **`Qwen/Qwen2.5-1.5B-Instruct`**
-  (~3 GB fp16, ~1 GB 4-bit; strong tool-calling for its size). Document at least
-  two fallbacks — e.g. `HuggingFaceTB/SmolLM2-1.7B-Instruct` and
-  `meta-llama/Llama-3.2-1B-Instruct` — and one step-up option
-  (`Qwen/Qwen2.5-3B-Instruct`) for machines with more memory.
-- **Configurable:** the router model id, device, and quantization are set in
-  config (e.g. new `router_model` / `router_device` keys), defaulting to the MPS
-  device on Apple Silicon and CPU otherwise, consistent with `oracle/retrieval`.
-- **Loaded once** per process and shared across requests (the model is heavy);
-  download is cached locally and a one-time fetch is allowed on first run, mirroring
-  the `Embedder` policy.
+- **Model choice:** any Hugging Face instruct model that **fits in local memory**.
+  Default to **`Qwen/Qwen2.5-1.5B-Instruct`** (~3 GB fp16, ~1 GB 4-bit; strong
+  tool-calling for its size). Documented fallbacks — `HuggingFaceTB/SmolLM2-1.7B-Instruct`
+  and `meta-llama/Llama-3.2-1B-Instruct` — and a step-up option
+  (`Qwen/Qwen2.5-3B-Instruct`) for machines with more memory (a good lever if the
+  1.5B model misroutes).
+- **Configurable:** `router_model` and `router_device` (default: auto — MPS on Apple
+  Silicon, else CUDA/CPU, consistent with `oracle/retrieval`).
+- **Loaded once** per process and shared across router **and** planner instances via
+  a `(model_id, device)` weight cache; download is cached locally and a one-time
+  fetch is allowed on first run, mirroring the `Embedder` policy.
 - **Division of labour:** the local router selects tools and drives the loop; the
   large model is invoked only for final synthesis of the gathered evidence. Both
   contribute to the token accounting below.
-- **Footprint guardrails:** the spec should state an approximate memory ceiling and
-  refuse / warn if the chosen model would not fit, so a too-large model is caught
-  early rather than OOM-ing mid-run.
+- **Footprint guardrails:** a memory ceiling (`router_max_gb`, default 6 GB); the
+  router refuses a known model whose estimated footprint exceeds it, so a too-large
+  model is caught early rather than OOM-ing mid-run.
 
 ## Traceability & Token Accounting
 
@@ -152,7 +174,11 @@ a **structured, per-step trace** surfaced in the GUI:
 - **GUI:** in `ChatPage`, the existing "Reasoning" `<details>` becomes a step list
   (tool · args · model · result · input/output/reasoning tokens) with a summary
   line showing the router & synthesis model names, total tokens (by type), and time
-  for the whole answer. Keep it collapsible.
+  for the whole answer. Keep it collapsible. *As built,* rendered by a dedicated
+  `TraceView` component.
+- **Progress feedback:** because agentic runs (local router + tools + synthesis) can
+  take a while, while a request is in flight the GUI shows a **live elapsed-seconds
+  counter and an animated progress bar** so a long run doesn't look like a crash.
 
 ## Termination & Loop Avoidance
 
@@ -170,53 +196,92 @@ repeatedly calling tools. Specify the following guarantees:
 - **Wall-clock timeout:** an overall time budget for answering one question; on
   timeout, force the final-answer path rather than hanging the GUI (consistent with
   the bounded client timeouts already in `arag.py`).
-- **Always-terminating contract:** every answer path ends in exactly one
-  `final_answer` — by the agent deciding it's done, or by the budget/loop guards
-  forcing it. The trace records **why** it stopped (done · step-budget · timeout ·
-  loop-guard) so the termination reason is visible to the user.
+- **Always-terminating contract:** every answer path ends in exactly one concluding
+  step — *as built,* a single **proxy synthesis** over the gathered evidence
+  (rather than a smolagents `final_answer` tool) — reached either by the router
+  deciding it's done or by the budget/loop guards forcing it. The trace records
+  **why** it stopped (done · step-budget · timeout · loop-guard) so the termination
+  reason is visible to the user.
 
-## Multi-hop planning (exploratory)
+## Multi-hop planning
 
 Some quiz questions need **several dependent hops** — e.g. "In which country was the
 director of the highest-grossing 1997 film born?" (find film → find director → find
-birthplace → find country). Today's loop is *reactive*: the router picks one tool at
-a time under a flat step budget, which makes deep chains fragile. Ideas for going
-beyond the bounded limit — captured for discussion, **not committed**:
+birthplace → find country). The plain loop is *reactive*: the router picks one tool
+at a time under a flat step budget, which makes deep chains fragile.
 
-- **Plan-then-execute.** Before tool calls, ask the router (or the large model once)
-  to emit an explicit ordered **plan** of sub-questions. Execute each hop, feeding
-  the previous hop's answer into the next. The step budget then bounds *plans*, and
-  each hop can carry its own small sub-budget.
-- **Sub-goal decomposition with a scratchpad.** Maintain a running "known facts"
-  memory: each hop writes its result as a named fact (`director = …`) that later
-  hops and the synthesizer read. This makes dependencies explicit and lets the
-  loop-guard reason about *progress* (new facts learned) rather than just repeated
-  calls.
-- **Budget as depth, not count.** Replace the flat `max_steps` with a **hop-depth**
-  limit plus a per-hop step limit (e.g. depth ≤ 3, ≤ 3 tool calls per hop), so a
-  legitimately deep question isn't starved by a single global cap while still
-  terminating.
-- **Recursive sub-agents.** Spawn a bounded child agent per sub-question (its own
-  tools, trace, and budget); the parent composes their results. Traces nest, and
-  token accounting rolls the children's cost up into the parent total.
-- **Verification / backtracking hop.** After a candidate answer, allow one optional
-  "check" hop (re-query to confirm), and on contradiction backtrack to an earlier
-  fact instead of failing — bounded so it can't loop.
-- **Guardrails carry over.** Whatever the shape, the **always-terminating contract**
-  holds: total depth × per-hop budget and the wall-clock timeout bound the whole
-  tree, every branch ends in a single synthesis, and the trace records the plan, the
-  hops taken, and the stop reason.
+**Implemented (opt-in via `multi_hop`, `oracle/agent/planner.py` +
+`oracle/agent/multihop.py`) — plan-then-execute with a facts scratchpad:**
+
+- **Plan.** A `LocalPlanner` (reusing the local router model) emits an ordered list
+  of **sub-questions** (JSON), bounded by `max_hops`.
+- **Execute per hop with a scratchpad.** Each sub-question is answered by the bounded
+  `run_agent` loop; the answers of earlier hops are threaded forward as **known
+  facts** in the next hop's context, making dependencies explicit.
+- **Compose.** A final synthesis composes the hop answers into the answer to the
+  original question. A single-hop plan skips the extra compose and reproduces the
+  plain, non-planning behaviour exactly.
+- **Budget as depth, not just count.** Depth is bounded by `max_hops` and each hop
+  carries the loop's own step budget / timeout, so the whole tree always terminates.
+- **Nested trace.** The trace shows a `planner` step, then every hop's steps tagged
+  with their hop index, then the final `synthesis`; token accounting rolls the hops'
+  cost up into the per-question total (with a dedicated `planner` attribution).
+
+Ideas **not** taken this iteration, kept for later: recursive bounded **sub-agents**
+per sub-question (nested child traces), and a **verification / backtracking hop**
+(re-query to confirm a candidate; on contradiction, backtrack to an earlier fact) —
+both bounded so they can't loop.
+
+## Configuration & GUI
+
+As-built configuration (`oracle/config.py`, per QA-system config / `QAConfig`):
+
+- **Router:** `router_model` (default `Qwen/Qwen2.5-1.5B-Instruct`), `router_device`
+  (default auto), `router_max_gb` (default 6).
+- **Termination:** `max_steps` (default 6), `agent_timeout_seconds` (default 120).
+- **Online tools:** `enable_online_tools` (default **false**).
+- **Multi-hop:** `multi_hop` (default **false**), `max_hops` (default 3).
+
+The chat GUI exposes the two opt-in switches in **Settings** — *"Web + YouTube
+tools"* (`enable_online_tools`) and *"Multi-hop planning"* (`multi_hop`) — and
+`/api/chat` threads them into the config. Online tools and multi-hop are **off by
+default**, so they must be enabled per request to take effect.
 
 ## Out of Scope (for now)
 
-- **Unauthenticated / uncapped** external calls. Live web search and YouTube are now
-  in scope (above) but only **key-gated and disabled by default**; running them
-  without a configured key, or without the per-tool result/length caps, stays out
-  of scope.
-- Other external paid APIs beyond the two documented tools.
-- Full multi-hop planning beyond the bounded step limit — see **Multi-hop planning
-  (exploratory)** below for how it *could* work; it is not committed for this
-  iteration.
+- **Uncapped** external calls or **paid** search/video APIs — the online tools are
+  keyless/open-source, opt-in, and capped (5 results, truncated text); anything
+  beyond that (paid APIs, uncapped fetches) stays out of scope.
+- Recursive sub-agents and a verification/backtracking hop for multi-hop (see that
+  section) — deferred to a later iteration.
+
+## Implementation notes
+
+Module map of the as-built feature:
+
+- `oracle/tools/` — tool logic as plain functions (`calculator`, `datetool`,
+  `convert`, `pick`, `wiki_lookup`, `search`, `rewrite`, `websearch`, `youtube`),
+  wrapped as smolagents `Tool`s in `__init__.py`; `runtime.py` holds shared
+  retriever/embedder/client and the per-tool token tally.
+- `oracle/agent/` — `router.py` (local JSON router + weight cache + memory
+  guardrail), `loop.py` (bounded, always-terminating orchestrator + `SynthesisResult`),
+  `planner.py` + `multihop.py` (multi-hop), `trace.py` (structured trace + token
+  totals by attribution and by input/output/reasoning type).
+- `oracle/qa/arag.py` — composes the active toolset, router, and (optional) planner,
+  and provides the proxy synthesis.
+- `oracle/api.py` — `/api/chat` carries `enable_online_tools` / `multi_hop` in and the
+  structured `trace` + `usage` (token breakdown + model names) out.
+- `frontend/src/components/TraceView.jsx` + `pages/ChatPage.jsx` — trace rendering,
+  Settings toggles, and the in-flight progress indicator.
+- Tests: `tests/test_tools.py`, `test_online_tools.py` (mocked HTTP),
+  `test_agent_loop.py` (guards + token accounting), `test_multihop.py`,
+  `test_api.py`.
+
+Deviations from the original intent, for the record: online tools are **keyless
+open-source** (DuckDuckGo / yt-dlp / youtube-transcript-api) gated by a setting
+rather than an API key; the tools are smolagents `Tool`s but run under a **custom
+bounded orchestrator** rather than `ToolCallingAgent`; and the concluding step is a
+**proxy synthesis**, not a smolagents `final_answer`.
 
 ## Acceptance
 
