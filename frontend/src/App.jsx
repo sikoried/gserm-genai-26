@@ -1,6 +1,7 @@
 import { NavLink, Route, Routes } from "react-router-dom";
 import ChatPage from "./pages/ChatPage.jsx";
 import ComparisonPage from "./pages/ComparisonPage.jsx";
+import QuizPage from "./pages/QuizPage.jsx";
 
 const navLink = ({ isActive }) => ({
   color: "#fff",
@@ -24,12 +25,16 @@ export default function App() {
           <NavLink to="/compare" style={navLink}>
             Comparison
           </NavLink>
+          <NavLink to="/quiz" style={navLink}>
+            Quiz
+          </NavLink>
         </div>
       </nav>
       <div style={styles.content}>
         <Routes>
           <Route path="/" element={<ChatPage />} />
           <Route path="/compare" element={<ComparisonPage />} />
+          <Route path="/quiz" element={<QuizPage />} />
         </Routes>
       </div>
     </div>

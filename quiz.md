@@ -22,14 +22,23 @@ different QA approaches.
   **holds a Q&A dataset** and **judges** the player's answers.
 - The host is the only side that sees the dataset's **reference answers** — the
   player never receives them (it must answer from its own capabilities).
-- **Default dataset: `RedBlock/parrot`** (Hugging Face). Downloaded **once** and
-  cached (under `data/hf-cache`, like the wiki-10k corpus) the first time a quiz is
-  run; reused thereafter.
-- **Pluggable datasets.** The dataset is behind a small loader interface so other
-  HF (or local) datasets can be used. A dataset config gives the **dataset id** and
-  a **column mapping** (which field is the question, which is the reference answer),
-  since schemas differ. The exact `RedBlock/parrot` columns are inspected on first
-  download and mapped in config (default mapping documented once known).
+- **Default dataset: `millionaire.csv` from `RedBlock/parrot`** (Hugging Face) — the
+  *Who Wants to Be a Millionaire* set (22,698 multiple-choice questions). **Only that
+  file is loaded** (not `jeopardy.csv`). Downloaded **once** and cached (under
+  `data/hf-cache`, like the wiki-10k corpus); reused thereafter. *As built,* the
+  player is asked the **bare `question`** (the 4 options are **not** included), and
+  the reference is `normalized_correct_opt` (e.g. "B: Shine"). The loader still
+  supports an optional options column for other multiple-choice datasets.
+- **Pluggable datasets.** The dataset is behind a small loader interface
+  (`oracle/quiz/dataset.py`) so other HF (or local) datasets can be used. A registry
+  entry / request gives the **dataset id**, optional **`data_files`** (to pick one
+  file in a multi-file repo), a **column mapping** (question / answer), and an
+  optional **options column** for multiple-choice sets.
+
+> **Status: implemented.** Backend: `oracle/quiz/` (dataset loader + registry, host
+> binary judge reusing `oracle/eval/judge.py`) and `/api/quiz/{datasets,start,answer}`
+> in `oracle/api.py`. Frontend: `frontend/src/pages/QuizPage.jsx` (routed **Quiz**
+> page). Network-free tests in `tests/test_quiz.py`.
 
 ### 2) Player
 - **Any QA mode can be a player** — `world`, `rag`, or `a-rag`. **Agentic RAG is the
