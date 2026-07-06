@@ -22,6 +22,9 @@ class QAConfig(BaseModel):
     # --- RAG ---
     top_k: int = 10  # number of retrieved chunks used as context (rag)
     embedding_model: str = "all-MiniLM-L6-v2"  # local embedding model for retrieval
+    # --- Split-model aRAG ---
+    router_model: str | None = None  # local LLM for routing decisions (e.g. qwen2.5:3b)
+    router_endpoint: str | None = None  # local inference server (e.g. http://localhost:11434/v1)
 
     @classmethod
     def from_yaml(cls, path: str | Path) -> "QAConfig":

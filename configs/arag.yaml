@@ -1,0 +1,7 @@
+# Agentic RAG: split-model architecture (local router + cloud answerer).
+type: a-rag
+model: mistralai/Mistral-Medium-3.5-128B
+endpoint: https://kiz1.in.ohmportal.de/llmproxy/v1
+router_model: qwen2.5:3b
+router_endpoint: http://localhost:11434/v1
+temperature: 0.0

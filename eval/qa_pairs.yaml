@@ -1,26 +1,215 @@
-# Oracle — evaluation query/answer pairs (STUB)
-#
-# These are trivial placeholder examples so the eval harness has something to
-# run against. Real pairs — grounded in the NeelNanda/wiki-10k corpus and
-# scored with LLM-as-a-judge — will be authored later.
-#
-# Schema per item:
-#   id:               stable identifier
-#   question:         the query posed to a QA system
-#   reference_answer: the expected ("gold") answer the judge compares against
-
-- id: ex-001
-  question: "What is the capital of France?"
-  reference_answer: "Paris"
-
-- id: ex-002
-  question: "Who wrote the play Romeo and Juliet?"
-  reference_answer: "William Shakespeare"
-
-- id: ex-003
-  question: "What is the chemical symbol for water?"
-  reference_answer: "H2O"
-
-- id: ex-004
-  question: "How many continents are there on Earth?"
-  reference_answer: "Seven"
+- id: wiki-001
+  question: What is the official name of the Benedictines?
+  reference_answer: The Order of Saint Benedict (OSB).
+  difficulty: easy
+  type: factoid
+  source_article: Benedictines
+- id: wiki-002
+  question: How are the Benedictines organized, and what role does the Abbot Primate
+    serve?
+  reference_answer: They are organized as autonomous monasteries, and the Abbot Primate
+    represents them to the Vatican and the world.
+  difficulty: medium
+  type: multi-hop
+  source_article: Benedictines
+- id: wiki-003
+  question: Which monastery was the first founded by Benedict of Nursia, and what
+    significant event led to the spread of Benedictine monasticism?
+  reference_answer: The monastery at Subiaco in Italy was the first, and the sack
+    of Monte Cassino by the Lombards around 580 led to the diffusion of Benedictine
+    monasticism.
+  difficulty: hard
+  type: multi-hop
+  source_article: Benedictines
+- id: wiki-004
+  question: What is the temperature of absolute zero in Celsius and Fahrenheit?
+  reference_answer: Absolute zero is −273.15°C and −459.67°F.
+  difficulty: easy
+  type: factoid
+  source_article: Absolute zero
+- id: wiki-005
+  question: Why can absolute zero not be reached using only thermodynamic means?
+  reference_answer: Because the temperature of the substance being cooled approaches
+    the temperature of the cooling agent asymptotically, and a system at absolute
+    zero still possesses quantum mechanical zero-point energy.
+  difficulty: medium
+  type: factoid
+  source_article: Absolute zero
+- id: wiki-006
+  question: How do the entropy and enthalpy of a cooled ideal gas behave at absolute
+    zero?
+  reference_answer: At absolute zero, the enthalpy and entropy of a cooled ideal gas
+    reach their minimum value, taken as zero kelvin.
+  difficulty: hard
+  type: multi-hop
+  source_article: Absolute zero
+- id: wiki-007
+  question: What are the three core traits of Erlang processes as summarized by Joe
+    Armstrong in his PhD thesis?
+  reference_answer: Processes are strongly isolated, message passing is the only way
+    for processes to interact, and processes share no resources.
+  difficulty: hard
+  type: multi-hop
+  source_article: Erlang (programming language)
+- id: wiki-008
+  question: When was Erlang first released as free and open-source software?
+  reference_answer: '1998'
+  difficulty: easy
+  type: factoid
+  source_article: Erlang (programming language)
+- id: wiki-009
+  question: What was the name of the virtual machine developed for Erlang in 1992,
+    and what did it compile Erlang to?
+  reference_answer: The BEAM virtual machine, which compiles Erlang to C.
+  difficulty: medium
+  type: factoid
+  source_article: Erlang (programming language)
+- id: wiki-010
+  question: When and where was David Beckham born?
+  reference_answer: 2 May 1975 at Whipps Cross University Hospital in Leytonstone,
+    London, England.
+  difficulty: easy
+  type: factoid
+  source_article: David Beckham
+- id: wiki-011
+  question: Which four countries did David Beckham win league titles in?
+  reference_answer: England, Spain, the United States and France.
+  difficulty: medium
+  type: factoid
+  source_article: David Beckham
+- id: wiki-012
+  question: How many UEFA Champions League games did David Beckham play, and which
+    club did he win the UEFA Champions League with?
+  reference_answer: He played 100 UEFA Champions League games and won the UEFA Champions
+    League with Manchester United in 1999.
+  difficulty: hard
+  type: multi-hop
+  source_article: David Beckham
+- id: wiki-013
+  question: Who co-founded Digital Equipment Corporation and in what year?
+  reference_answer: Ken Olsen and Harlan Anderson co-founded Digital Equipment Corporation
+    in 1957.
+  difficulty: easy
+  type: factoid
+  source_article: Digital Equipment Corporation
+- id: wiki-014
+  question: Which DEC product line was designed to replace the PDP-11 and became a
+    best-seller with over 400,000 units sold?
+  reference_answer: The VAX-11 series was designed to replace the PDP-11 and became
+    a best-seller with over 400,000 units sold.
+  difficulty: medium
+  type: factoid
+  source_article: Digital Equipment Corporation
+- id: wiki-015
+  question: What was DEC's rank in the computer industry at its peak, and which company
+    was the only one larger?
+  reference_answer: At its peak, DEC was the second largest computer company in the
+    industry, with IBM being the only larger company.
+  difficulty: hard
+  type: comparison
+  source_article: Digital Equipment Corporation
+- id: wiki-016
+  question: What was Charlize Theron's first language?
+  reference_answer: Afrikaans
+  difficulty: easy
+  type: factoid
+  source_article: Charlize Theron
+- id: wiki-017
+  question: Which film earned Charlize Theron her first Academy Award for Best Actress,
+    and what historical milestone did this achieve?
+  reference_answer: Monster (2003); she became the first South African to win an Oscar
+    in an acting category.
+  difficulty: medium
+  type: multi-hop
+  source_article: Charlize Theron
+- id: wiki-018
+  question: How did Charlize Theron's father die, and what was the legal outcome?
+  reference_answer: He was shot by her mother in self-defense during a violent confrontation;
+    her mother faced no charges.
+  difficulty: hard
+  type: factoid
+  source_article: Charlize Theron
+- id: wiki-019
+  question: What are the two most common forms of badminton?
+  reference_answer: Singles (one player per side) and doubles (two players per side).
+  difficulty: easy
+  type: factoid
+  source_article: Badminton
+- id: wiki-020
+  question: Why does the shuttlecock decelerate more rapidly than balls in other racquet
+    sports?
+  reference_answer: The feathers create much higher drag, causing rapid deceleration.
+  difficulty: medium
+  type: factoid
+  source_article: Badminton
+- id: wiki-021
+  question: Where did the modern game of badminton develop, and what earlier game
+    was it a variant of?
+  reference_answer: It developed in British India as a variant of battledore and shuttlecock.
+  difficulty: hard
+  type: multi-hop
+  source_article: Badminton
+- id: wiki-022
+  question: What is the SI unit for luminance?
+  reference_answer: The SI unit for luminance is candela per square metre (cd/m²).
+  difficulty: easy
+  type: factoid
+  source_article: Luminance
+- id: wiki-023
+  question: How does the luminance of the output compare to the input in an ideal
+    optical system?
+  reference_answer: In an ideal optical system, the luminance at the output is the
+    same as the input luminance.
+  difficulty: medium
+  type: factoid
+  source_article: Luminance
+- id: wiki-024
+  question: What is the relationship between luminance and illuminance for a reflecting
+    surface?
+  reference_answer: The luminance of a reflecting surface is related to the illuminance
+    it receives through the integral of luminous exitance over all emission directions.
+  difficulty: hard
+  type: multi-hop
+  source_article: Luminance
+- id: wiki-025
+  question: What is the only New York City borough not primarily on an island?
+  reference_answer: The Bronx
+  difficulty: easy
+  type: factoid
+  source_article: The Bronx
+- id: wiki-026
+  question: Which borough of New York City has the fourth-largest area and the fourth-highest
+    population?
+  reference_answer: The Bronx
+  difficulty: medium
+  type: factoid
+  source_article: The Bronx
+- id: wiki-027
+  question: How does the Bronx's population density rank among the five New York City
+    boroughs?
+  reference_answer: It has the third-highest population density.
+  difficulty: hard
+  type: comparison
+  source_article: The Bronx
+- id: wiki-028
+  question: What are the three symbols used in the Mayan numeral system?
+  reference_answer: Zero (a shell), one (a dot), and five (a bar).
+  difficulty: easy
+  type: factoid
+  source_article: Maya numerals
+- id: wiki-029
+  question: How is the number 429 represented in the Mayan numeral system using powers
+    of twenty?
+  reference_answer: One dot above one dot above four dots and a bar, or (1×20²) +
+    (1×20¹) + 9 = 429.
+  difficulty: hard
+  type: factoid
+  source_article: Maya numerals
+- id: wiki-030
+  question: How does the 'modified vigesimal' system in the Maya calendar differ from
+    a pure base-20 system?
+  reference_answer: The second position uses digits up to 17, and the third position's
+    place value is 18×20 (360) instead of 20×20 (400).
+  difficulty: medium
+  type: comparison
+  source_article: Maya numerals
