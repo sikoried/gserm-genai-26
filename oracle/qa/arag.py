@@ -16,7 +16,8 @@ import re
 import time
 
 from .base import Answer, QASystem
-from .rag import DEFAULT_SYSTEM_PROMPT, _context_template, _first_user_message
+from .rag import DEFAULT_SYSTEM_PROMPT as RAG_SYSTEM_PROMPT, _context_template, _first_user_message
+from .world import DEFAULT_SYSTEM_PROMPT as WORLD_SYSTEM_PROMPT
 from ..config import QAConfig
 from ..llm import UsageMetrics, chat_with_metrics, make_client
 from ..models import reasoning_request_kwargs
@@ -36,7 +37,10 @@ ROUTER_PROMPT = (
     "When in doubt, prefer RAG — retrieving unnecessary context is harmless, but "
     "missing needed context produces wrong answers.\n\n"
     "Question: {question}\n\n"
-    'Respond with JSON only: {{"route": "world" | "rag", "search_query": "...or null"}}'
+    "Respond with JSON only. Set search_query to the best search terms for retrieval, "
+    "or null if route is world.\n"
+    'Example (rag): {{"route": "rag", "search_query": "Marie Curie Nobel Prize chemistry"}}\n'
+    'Example (world): {{"route": "world", "search_query": null}}'
 )
 
 
@@ -65,7 +69,8 @@ class AgenticRagQA(QASystem):
     def __init__(self, config: QAConfig):
         super().__init__(config)
         self.cloud_client = make_client(config.endpoint)
-        self.system_prompt = config.system_prompt or DEFAULT_SYSTEM_PROMPT
+        self.rag_system_prompt = config.system_prompt or RAG_SYSTEM_PROMPT
+        self.world_system_prompt = WORLD_SYSTEM_PROMPT
         self.top_k = config.top_k
 
         if AgenticRagQA._retriever is None:
@@ -129,10 +134,10 @@ class AgenticRagQA(QASystem):
                 trace_lines.append(f"Router rewrote query: {search_query!r}")
             hits = self._retrieve(query_for_search)
             context = _context_template.render(hits=hits)
-            system_content = f"{self.system_prompt}\n\nContext:\n{context}"
+            system_content = f"{self.rag_system_prompt}\n\nContext:\n{context}"
             trace_lines.append(f"Retrieved {len(hits)} chunks.")
         else:
-            system_content = self.system_prompt
+            system_content = self.world_system_prompt
             trace_lines.append("Skipped retrieval — answering from world knowledge.")
 
         messages = [{"role": "system", "content": system_content}]
